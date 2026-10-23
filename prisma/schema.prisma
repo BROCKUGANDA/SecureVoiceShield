@@ -1,0 +1,60 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// Every state-changing write stores the exact decision it produced.
+// Money values never appear here: the demo never touches real payments.
+model Decision {
+  id            String   @id @default(cuid())
+  idemKey       String?  @unique
+  kind          String // number_check | voice_check | guardian | verified_lookup
+  subject       String // masked / hashed subject, never a raw number
+  subjectMasked String
+  verdict       String // clear | caution | danger | inconclusive | verified
+  reasons       String // JSON string[] of reason codes
+  action        String // allow | step_up | hold | review
+  signals       String // JSON snapshot (values only, never audio)
+  latencyMs     Int      @default(0)
+  auditSeq      Int
+  createdAt     DateTime @default(now())
+}
+
+// Hash-chained evidence log: each entry links to the previous one per cell.
+model AuditEntry {
+  id            String   @id @default(cuid())
+  seq           Int      @unique
+  cell          String   @default("ug")
+  actor         String
+  action        String
+  resource      String
+  reasonCodes   String   @default("[]")
+  policyVersion String
+  inputDigest   String
+  prevHash      String
+  entryHash     String
+  createdAt     DateTime @default(now())
+}
+
+model ScamReport {
+  id         String   @id @default(cuid())
+  numberE164 String
+  note       String?
+  createdAt  DateTime @default(now())
+
+  @@index([numberE164])
+}
+
+// Registry of real outbound bank calls: "Was that call real?" looks up here.
+model VerifiedCall {
+  id           String   @id @default(cuid())
+  bankName     String
+  market       String // AE | KE | UG | TZ
+  e164         String   @unique
+  minutesValid Int      @default(15)
+  createdAt    DateTime @default(now())
+}

@@ -1,0 +1,527 @@
+<aside>
+🛰️
+
+How Shield behaves at runtime: topology, contracts, queues, caching, retries, hot, warm and cold paths, active-active cells, realtime media, observability and degradation. Two rules run through all of it. **No model output and no dependency failure can ever produce a good result.** Missing evidence becomes `unknown`, and `unknown` never lowers risk. **Every write is idempotent**, so anything can be retried, replayed or run twice safely.
+
+</aside>
+
+## 1. Topology
+
+```
+                      Global control plane  (no personal data)
+        tenants · hashed API credentials · policy and model registries (signed)
+             feature flags · system mode · hashed scam-intel exchange
+                                      │
+ Public users, banks, telcos ──► Edge: WAF · DDoS · bot rules · region steering
+                                      │
+        ┌───────────────────┬─────────┴───────────┬─────────────────────┐
+        ▼                   ▼                     ▼                     ▼
+  Cell AE (UAE)      Cell KE (Kenya)      Cell UG (Uganda)     Cell TZ (Tanzania)
+     Each cell runs the same stack, in-country, across two zones:
+
+     Gateway API ........ Bun · Hono · Zod · OpenAPI 3.1
+     Channel adapters ... WhatsApp Cloud API · USSD and SMS aggregators · APNs / FCM
+     Media gateway ...... Twilio <Start><Stream> fork or local SIP trunk → WebSocket
+                          SIP leg → ElevenLabs Agents (Guardian)
+     Decision engine .... pure TypeScript, no I/O, versioned signed policies
+     Detect service ..... D1 ElevenLabs AI Speech Classifier · D2 vendor · D3 in-house (GPU, ONNX)
+     Telco adapters ..... CAMARA aggregator · MTN Uganda direct · others per market
+     Postgres 16 ........ primary + synchronous standby + witness · pg-boss · outbox · audit chain
+     Valkey ............. cache · rate limits · locks · session checkpoints
+     Object store ....... WORM evidence (object lock) · tmpfs scratch for audio
+```
+
+- **Cells are independent.** Each country's personal data lives and is processed in its own cell. A cell can fail without affecting the others.
+- **The control plane holds no personal data.** It distributes signed policies, model versions, flags and the system mode.
+- **The scam-intel exchange** shares only keyed HMAC hashes of numbers and aggregate counts between cells, never raw numbers, audio or names.
+
+## 2. Hot, warm and cold paths
+
+| Path | Examples | Budget | How it runs |
+| --- | --- | --- | --- |
+| Hot: someone is on a call right now | Guardian challenge scoring | Result 1.5 s or less after the caller stops speaking | In-process engine, hedged detectors, no queue |
+| Hot: bank is about to act | `POST /v1/otp-guard` | p95 150 ms or less with a warm cache, p99 800 ms or less with a live telco call | Subscription-fed cache, telco call only on miss |
+| Hot | `GET /v1/verified-calls/lookup` | p95 100 ms or less | Cache plus primary-key read |
+| Hot | `POST /v1/assess` | p95 250 ms or less without audio, 3 s or less with up to 30 s of audio | Engine plus parallel signal fetch |
+| Hot: channel | USSD screen · app number check · WhatsApp verdict | 2 s per screen · p95 1.5 s · p95 10 s | Channel adapters, then the same engine |
+| Warm: minutes | Tenant webhooks · reputation recompute · scam-wave clustering · telco subscription renewal | p95 60 s · 5 min · every 5 min · before expiry | pg-boss queues |
+| Cold: batch | Policy backtests · eval runs · evidence packs · archive · retention purge | Backtest of 30 days of traffic in 20 min or less · daily purge | Low-priority queues, separate pools |
+
+## 3. Data temperature and retention
+
+| Tier | Store | Contents | Retention |
+| --- | --- | --- | --- |
+| Hot | Valkey (per cell) | SIM and forwarding status cache, rate limits, idempotency keys, Guardian checkpoints | Seconds to 24 h |
+| Warm | Postgres (per cell) | Decisions, signals, cases, holds, verified calls, reports, reputation, audit chain | 13 months online by default, set per tenant contract |
+| Cold | Object store with object lock (WORM) | Evidence packs, sealed audit segments, eval manifests | Bank evidence 7 years by default, set per contract and law |
+| Never stored | Nowhere | Raw public audio after scoring, voiceprints, safe words, OTP values, PINs | Not applicable |
+
+**Public audio** is processed in memory or on tmpfs, under a per-clip data key, and deleted within 60 s of scoring by destroying the key (crypto-shred). Only derived features and an **acoustic fingerprint of the recording** are kept, for 30 days, to deduplicate forwards and cluster scam waves. A fingerprint identifies a clip, not a speaker. It is not a voiceprint.
+
+**Business tenants** can opt in to keep call audio as evidence under their own key (BYOK), with retention set by contract.
+
+## 4. Request lifecycle
+
+Middleware runs in this order on every request:
+
+1. **Edge:** TLS 1.3, WAF, bot rules, region steering by tenant or phone prefix.
+2. **Correlation:** `requestId` and W3C `traceparent`.
+3. **Region guard:** if the tenant's data region is not this cell, return `SH-REGION-421` (Misdirected Request) with the correct base URL. Personal data is never proxied between cells.
+4. **Authentication:** mTLS plus OAuth 2.0 (business), device-bound session (app), signature checks (channel and vendor webhooks).
+5. **Authorisation:** scopes such as `assess:write` and `holds:release`. Tenant isolation through Postgres row-level security.
+6. **Rate limits:** token buckets in Valkey per credential, tenant and subject number.
+7. **Idempotency:** look up `Idempotency-Key`. Replay the stored response if found.
+8. **Validation:** strict Zod schemas. Unknown fields on writes are rejected.
+9. **Consent and legal guard:** for example, the Guardian only scores audio after the disclosure has played. Otherwise `SH-CONSENT-451`.
+10. **Handler:** fetch signals in parallel → pure engine → write the decision, outbox event and audit entry **in one transaction**.
+11. **Response headers:** `Shield-Decision-Id`, `Shield-Policy-Version`, `Shield-Mode`.
+
+## 5. API conventions
+
+| Topic | Rule |
+| --- | --- |
+| Base URL | `https://{region}.api.shield.securevoiceai.me/v1` with region `ae`, `ke`, `ug` or `tz`. Sandbox: `https://sandbox.{region}.api.shield.securevoiceai.me/v1`. |
+| Versioning | Major version in the URL. Only additive changes inside v1. Deprecations announced 6 months ahead with `Deprecation` and `Sunset` headers. |
+| Format | JSON, UTF-8, camelCase. IDs are prefixed ULIDs such as `dec_01JB…`, `hold_01JB…`. |
+| Phone numbers | E.164 strings only, such as `+256772123456` |
+| Money | `{ "amountMinor": 150000, "currency": "UGX" }`. Integer minor units with the ISO 4217 exponent: AED 2, KES 2, UGX 0, TZS 2 (shown as whole shillings unless cents are non-zero). Never floats. |
+| Time | RFC 3339 UTC with `Z`. Durations are integer milliseconds. |
+| Pagination | Cursor-based: `?cursor=…&limit=50`, maximum 200 |
+| Concurrency | `ETag` and `If-Match` on policies and holds |
+| Errors | RFC 9457 `application/problem+json` (section 8) |
+| Webhook signature | `Shield-Signature: t=1729500000,v1=hex(HMAC-SHA256(secret, t + "." + rawBody))`. 5-minute tolerance. Consumers deduplicate on event `id`. |
+| Reason codes | Stable enums: `SIM_SWAP_RECENT`, `DEVICE_SWAP_RECENT`, `CALL_FORWARDING_ACTIVE`, `VOICE_SYNTHETIC_LIKELY`, `VOICE_LIVENESS_FAILED`, `NUMBER_REPORTED`, `SCAM_WAVE_MATCH`, `STORY_PRESSURE_TO_PAY`, `KYC_MISMATCH`, `VERIFIED_CALL`, `SIGNAL_UNAVAILABLE` |
+
+## 6. Core contracts
+
+### 6.1 `POST /v1/assess`
+
+One risk decision for a moment of risk: adding a payee, a large transfer, a password reset, a call-centre verification.
+
+```json
+{
+  "subject": { "msisdn": "+256772123456" },
+  "context": {
+    "event": "payee_add",
+    "channel": "call_centre",
+    "amount": { "amountMinor": 2500000, "currency": "UGX" },
+    "externalRef": "txn_88412"
+  },
+  "checks": ["sim_swap", "call_forwarding", "reputation", "voice"],
+  "audio": { "uploadId": "upl_01JB7X…" },
+  "simSwapMaxAgeHours": 72
+}
+```
+
+```json
+{
+  "decisionId": "dec_01JB8Q2K7Z…",
+  "decision": "hold",
+  "riskBand": "high",
+  "reasons": [
+    { "code": "SIM_SWAP_RECENT", "detail": { "hoursAgo": 2 } },
+    { "code": "VOICE_SYNTHETIC_LIKELY", "detail": { "generalDetectorsAgreeing": 2 } }
+  ],
+  "signals": {
+    "simSwap": { "status": "swapped", "source": "camara", "checkedAt": "2025-10-21T09:14:03Z" },
+    "callForwarding": { "status": "unknown", "reason": "SIGNAL_UNAVAILABLE", "error": "SH-TELCO-504" },
+    "voice": { "status": "synthetic_likely", "detectorsRun": 3 },
+    "reputation": { "status": "reported", "independentReporters14d": 9 }
+  },
+  "recommendedActions": ["hold_transfer", "step_up_out_of_band"],
+  "policyVersion": "ug-banking-2025.10.3",
+  "mode": "NORMAL",
+  "expiresAt": "2025-10-21T09:24:03Z"
+}
+```
+
+- `decision` is one of `allow`, `step_up`, `hold`, `block`. `riskBand` is one of `low`, `medium`, `high`, `unknown`.
+- **Dependency failures inside `assess` are not errors.** They come back as a signal with `status: unknown` and reason `SIGNAL_UNAVAILABLE`. Policies map that to at least `step_up` for high-value events, so the bank always gets a usable answer.
+- **Client contract, tested in certification:** on timeout, network error or any 5xx, the bank's integration treats the result as `step_up`. It never defaults to `allow`.
+
+### 6.2 `POST /v1/otp-guard`
+
+Called by the bank **before** sending a one-time code.
+
+```json
+{
+  "msisdn": "+254712345678",
+  "purpose": "payment",
+  "amount": { "amountMinor": 7500000, "currency": "KES" },
+  "candidateChannels": ["sms", "app_push", "whatsapp"]
+}
+```
+
+```json
+{
+  "decisionId": "dec_01JB8R…",
+  "decision": "step_up",
+  "otp": { "sms": "suppress", "allowedChannels": ["app_push"] },
+  "reasons": [{ "code": "SIM_SWAP_RECENT", "detail": { "hoursAgo": 5 } }],
+  "cooldownUntil": "2025-10-22T09:00:00Z",
+  "policyVersion": "ke-banking-2025.10.1"
+}
+```
+
+Shield never sees, stores or sends the OTP value. It only advises whether and where the bank should send it.
+
+## 7. Endpoint catalogue
+
+### 7.1 Business API
+
+| Method and path | Purpose | Path class | Idempotent |
+| --- | --- | --- | --- |
+| `POST /v1/assess` | Combined risk decision | Hot | `Idempotency-Key` |
+| `POST /v1/otp-guard` | Advice before sending an OTP | Hot | Yes |
+| `POST /v1/uploads` | Signed upload slot for audio | Hot | Yes |
+| `POST /v1/audio-checks` | Score audio for synthetic voice | Hot | Yes |
+| `GET /v1/audio-checks/{id}` | Result | Hot | Read |
+| `GET /v1/audio-checks/{id}/events` | SSE progress: `received`, `voice.scored`, `number.checked`, `story.checked`, `result` | Hot | Read |
+| `POST /v1/holds` | Place a cooling-off hold | Hot | Yes |
+| `POST /v1/holds/{id}/release` | First approver releases | Warm | Yes |
+| `POST /v1/holds/{id}/countersign` | Second, different approver confirms | Warm | Yes |
+| `POST /v1/verified-calls` | Register an outbound bank call before dialling | Hot | Yes |
+| `GET /v1/verified-calls/lookup?msisdn=&at=` | "Was that call real?" | Hot | Read |
+| `GET /v1/numbers/{msisdn}/reputation` | Coarse reputation band | Hot | Read |
+| `POST /v1/reports` | Confirmed fraud report from a bank or telco | Warm | Yes |
+| `POST /v1/appeals` · `GET /v1/appeals/{id}` | Number-owner appeal and status | Warm | Yes |
+| `POST /v1/policies/drafts` | Draft a policy | Cold | Yes |
+| `POST /v1/policies/{id}/backtests` | Replay history against a draft | Cold | Yes |
+| `POST /v1/policies/{id}/approvals` | Four-eyes approval | Warm | Yes |
+| `POST /v1/policies/{id}/activate` · `/retire` | Go live or retire, with `If-Match` | Warm | Yes |
+| `POST /v1/webhook-endpoints` · `GET …/{id}/deliveries` · `POST …/deliveries/{id}/redeliver` | Webhooks | Warm | Yes |
+| `GET /v1/audit` · `GET /v1/audit/verify` | Audit export and chain verification | Cold | Read |
+| `POST /v1/evidence-packs` · `GET /v1/evidence-packs/{id}` | Signed evidence for disputes and regulators | Cold | Yes |
+| `POST /v1/data-subject-requests` | Access, correction, deletion | Cold | Yes |
+| `GET /v1/system/mode` · `GET /v1/health` · `GET /v1/health/deep` | Mode and health | Hot | Read |
+| `WSS /v1/streams/assess` | Running risk on contact-centre calls. Only the `final` message is a decision (09, section 2.3). | Hot | Per session |
+| `POST /v1/watches` · `DELETE /v1/watches/{id}` | Watch chosen numbers for SIM swap, device swap and forwarding, up to 90 days (10) | Warm | Yes |
+| `POST /v1/outcomes` | Confirmed outcomes for labels and shadow-run scoring (10) | Warm | Yes |
+| `GET /v1/jobs/{id}` · `POST /v1/jobs/{id}/cancel` | Status and cancellation of long-running work (09) | Warm | Read · Yes |
+| `GET /v1/events?after=` | Pull feed for banks that cannot accept webhooks, 30 days of history (09) | Warm | Read |
+
+### 7.2 Public surfaces (app and web)
+
+| Method and path | Purpose |
+| --- | --- |
+| `POST /v1/public/checks/number` | Check a number |
+| `POST /v1/public/checks/voice` | Check a voice note |
+| `GET /v1/public/checks/{id}/events` | SSE progress for the stepper |
+| `POST /v1/guardian/sessions` | Start a Guardian session. Returns the merge number and a session token. |
+| `POST /v1/public/reports` | Report a scam |
+| `POST /v1/family/links` · `DELETE /v1/family/links/{id}` | Link or unlink relatives, with consent from both |
+| `GET /v1/public/me/export` · `DELETE /v1/public/me` | Export or delete my data |
+
+### 7.3 Inbound hooks
+
+| Endpoint | Source | Verification |
+| --- | --- | --- |
+| `POST /hooks/whatsapp` | WhatsApp Cloud API | `X-Hub-Signature-256` |
+| `POST /hooks/ussd/{aggregator}` | USSD session callbacks | Aggregator signature or IP allow-list |
+| `POST /hooks/sms/{aggregator}` | Inbound SMS and delivery reports | Aggregator signature or IP allow-list |
+| `POST /hooks/twilio/voice` | Guardian call TwiML | `X-Twilio-Signature` |
+| `WS /media/{provider}` | Media stream fork | Signed one-time stream token |
+| `POST /hooks/elevenlabs/tools/{tool}` | Agent server tools | `x-agent-tool-secret`, rotated with a dual-valid window |
+| `POST /hooks/elevenlabs/post-call` | Post-call transcript and analysis | `ElevenLabs-Signature` HMAC |
+| `POST /hooks/telco/{provider}` | CAMARA SIM swap and call-forwarding notifications (CloudEvents) | Provider auth plus CloudEvents `id` dedupe |
+
+## 8. Errors
+
+```json
+{
+  "type": "https://docs.shield.securevoiceai.me/errors/SH-RATE-429",
+  "title": "Too many requests",
+  "status": 429,
+  "code": "SH-RATE-429",
+  "detail": "Tenant limit of 200 requests per second exceeded.",
+  "instance": "/v1/assess",
+  "traceId": "4bf92f3577b34da6a3ce929d0e0e4736",
+  "retryable": true,
+  "retryAfterMs": 1200,
+  "safeAction": "step_up"
+}
+```
+
+| HTTP | Code | Meaning | Retry |
+| --- | --- | --- | --- |
+| 400 | `SH-VALIDATION-400` | Schema violation | No |
+| 401 | `SH-AUTH-401` | Missing or expired credentials | After refresh |
+| 403 | `SH-SCOPE-403` | Missing scope or wrong tenant | No |
+| 404 | `SH-NOTFOUND-404` | Unknown resource | No |
+| 409 | `SH-IDEMPOTENCY-409` | Same key, different body | No. Use a new key. |
+| 409 | `SH-STATE-409` | Invalid transition, such as releasing an expired hold | No |
+| 412 | `SH-PRECONDITION-412` | `If-Match` failed | After re-read |
+| 415 | `SH-AUDIO-415` | Unsupported audio format | No |
+| 421 | `SH-REGION-421` | Wrong region cell | Re-route |
+| 422 | `SH-AUDIO-422` | Too little speech (under 3 s) | No |
+| 429 | `SH-RATE-429` | Rate limit | After `Retry-After` |
+| 451 | `SH-CONSENT-451` | Consent or legal block | No |
+| 500 | `SH-INTERNAL-500` | Internal error | Yes, with the same idempotency key |
+| 503 | `SH-MODE-503` | READ_ONLY or SAFE_HALT for this action | After mode change |
+| 503 | `SH-DETECT-503` | Standalone audio check could not run | Yes |
+| 504 | `SH-TELCO-504` · `SH-TIMEOUT-504` | Upstream timeout (standalone endpoints only) | Yes |
+
+`safeAction` tells every client what to do while the error lasts. For risk endpoints it is always `step_up`.
+
+## 9. Rate limits and abuse resistance
+
+| Caller | Default limit |
+| --- | --- |
+| Business credential | 200 rps, burst 400 (set by contract). 20 per minute per subject number. |
+| App user | 30 number checks and 10 voice checks per day |
+| WhatsApp user | 20 messages per minute, 30 checks per day |
+| USSD | 1 concurrent session per number |
+| Anonymous web | 5 checks per day per device, plus Turnstile |
+
+**Oracle attacks.** A scammer may use Shield to test a cloned voice until it passes. Defences:
+
+- Public results are coarse bands. Scores, thresholds and per-detector results never leave the cell.
+- "Detectors unsure" and "detector failed" both show as **Inconclusive**, so failures teach nothing.
+- Probe detection: many near-duplicate clips (acoustic-fingerprint similarity), bursts from one account or device, or a voice similar across many "different" callers. Probing accounts silently get Inconclusive and are flagged for review.
+
+**Reputation poisoning.** A number is publicly labelled "reported" only with **3 or more independent reporters in 14 days** (unlinked, verified devices) or one confirmed bank or telco report. Labels decay without new reports. Every label has an appeal path with a 72-hour review target.
+
+## 10. Idempotency and deduplication
+
+| Source | Dedupe key | Window |
+| --- | --- | --- |
+| Business writes | `Idempotency-Key`  • tenant, with the body hash stored. A mismatch returns 409. | 24 h |
+| WhatsApp messages | `wamid` | 7 days |
+| WhatsApp media | SHA-256 of bytes, then acoustic fingerprint | 30 days. The verdict is reused per model version. |
+| USSD | Session ID + step | Session |
+| Inbound SMS | Aggregator message ID | 7 days |
+| Voice calls | `CallSid`  • stream ID | Call |
+| Agent tool calls | `conversation_id`  • tool call ID | 24 h |
+| Post-call webhooks | `conversation_id`  • event type | 30 days |
+| Telco notifications | CloudEvents `source`  • `id` | 30 days |
+| Jobs | pg-boss `singletonKey` | Per job |
+| Outbound webhooks | Event `id`, which consumers must dedupe on | Not applicable |
+
+## 11. Queues
+
+pg-boss runs on each cell's Postgres, so a state change and its outbox event commit in the same transaction.
+
+| Queue | Flow | Priority | Retry | Dead-letter | Shed under load |
+| --- | --- | --- | --- | --- | --- |
+| `whatsapp.ingest` | Hook → router (ack under 1 s) | P1 | 5×, exponential | Yes | No |
+| `audio.fetch` | Router → media download | P1 | 3× | Yes | No |
+| `audio.detect` | Media → detect service | P1 | Hedged once | Yes | No |
+| `verdict.compose` | Signals → engine → result | P0 | 3× | Yes | **Never** |
+| `notify.send` | Result → WhatsApp, SMS, push | P0 | 6× over 10 min, then SMS fallback | Yes | **Never** |
+| `webhook.deliver` | Outbox → tenants | P1 | 12× over 24 h, capped at 1 h | Yes, with console alert | Delay only, never drop |
+| `webhook.urgent` | Outbox → tenants, urgent events such as `sim_swap.detected` (09) | P0 | Every 30 s for 15 min, then console alert and the tenant's on-call contact | Yes, with console alert | **Never** |
+| `reputation.recompute` | Reports → bands | P2 | 3× | Yes | Yes |
+| `waves.cluster` | Every 5 min | P2 | Next run | No | Yes |
+| `telco.subscription.renew` | Before expiry | P1 | 5× | Yes | No |
+| `retention.purge` | Daily | P0 | Until done. Alert after 2 failures. | No | **Never** |
+| `integrity.verify` | Hourly audit-chain check | P0 | Not applicable | No | **Never.** Failure enters SAFE_HALT. |
+| `kb.sync` | Knowledge base → ElevenLabs | P3 | 5× | Yes | Yes |
+| `eval.run` | CI and nightly | P3 | Manual | No | Yes |
+| `policy.backtest` | Console request | P3 | 2× | Yes | Yes |
+| `evidence.pack` | API request | P2 | 3× | Yes | Delay |
+| `archive.cold` | Nightly | P3 | Until done | No | Yes |
+
+**Shedding order under load, first to go:** `archive.cold` → `eval.run` → `kb.sync` → `policy.backtest` → `waves.cluster` → `reputation.recompute` → delay `evidence.pack` → delay `webhook.deliver`. Never shed: `verdict.compose`, `notify.send`, `retention.purge`, `integrity.verify`.
+
+## 12. Retries, hedging and timeouts
+
+| Dependency | Timeout | Retries | Notes |
+| --- | --- | --- | --- |
+| D1 ElevenLabs classifier | 1.2 s | 1 hedged request | Positive evidence only (section 12.2) |
+| D2 vendor detector | 1.2 s | 1 hedged request |  |
+| D3 in-house detector | 0.8 s | None (local) |  |
+| CAMARA SIM Swap / Call Forwarding | 600 ms | 1 with jitter | Cache first |
+| MTN Uganda SIM Swap | 800 ms | 1 with jitter | Cache first |
+| WhatsApp Cloud API send | 5 s | 6 over 10 min | Respect 429, then SMS fallback |
+| SMS aggregator | 5 s | 5, then secondary aggregator |  |
+| APNs / FCM | 5 s | 3 |  |
+| Tenant webhooks | 10 s | 12 over 24 h | Then dead-letter and alert |
+| ElevenLabs post-call (inbound) | Ack in 2 s or less | Sender retries | Processed asynchronously |
+| LLM (helper chat, console copilot) | 8 s | 1 fallback model | Never in a decision path |
+
+Backoff is exponential with **full jitter**: `sleep = random(0, min(cap, base × 2^attempt))`. Retries only happen on idempotent operations or with the same idempotency key.
+
+### 12.1 Hedged detector fan-out
+
+```tsx
+// Run every enabled detector in parallel inside one budget; hedge slow remote calls once.
+export async function scoreAudio(clip: Clip, detectors: Detector[], budgetMs = 1500): Promise<DetectorRun[]> {
+  const signal = AbortSignal.timeout(budgetMs);
+  return Promise.all(
+    detectors.map((d) =>
+      hedge(() => d.score(clip, { signal }), { afterMs: d.p95Ms, maxAttempts: d.remote ? 2 : 1 })
+        .then((r): DetectorRun => ({ id: d.id, version: d.version, scope: d.scope, ok: true, score: r.score }))
+        .catch((e): DetectorRun => ({ id: d.id, version: d.version, scope: d.scope, ok: false, error: classify(e) })),
+    ),
+  );
+}
+```
+
+### 12.2 The voice-signal floor
+
+```tsx
+// The only place a voice signal is decided. Pure, versioned, property-tested.
+// scope "provider" = can only recognise one vendor's audio (e.g. the ElevenLabs classifier).
+// scope "general"  = trained to detect synthetic speech from many generators.
+export function voiceSignal(runs: DetectorRun[], t: Thresholds): VoiceSignal {
+  const ok = runs.filter((r) => r.ok);
+  const synthetic = ok.filter((r) => r.score >= t.synthetic[r.id]).length;
+  if (synthetic >= 2 || ok.some((r) => r.scope === "provider" && r.score >= t.provider[r.id])) {
+    return { status: "synthetic_likely" }; // warnings may fire on partial evidence
+  }
+  const general = ok.filter((r) => r.scope === "general");
+  if (ok.length < runs.length || general.length < 2) {
+    return { status: "unknown", reason: "SIGNAL_UNAVAILABLE" }; // never "no signs" on missing evidence
+  }
+  if (general.every((r) => r.score <= t.genuine[r.id])) return { status: "no_signs" };
+  return { status: "uncertain" };
+}
+```
+
+- A provider-scoped "no" (for example, "not made with ElevenLabs") is **never** counted as evidence of a human voice.
+- A `no_signs` voice signal needs **every** detector to answer and **at least two general detectors** to agree.
+- Property tests assert that removing any detector run can never move a result towards Clear.
+
+### 12.3 Circuit breakers, bulkheads and budgets
+
+- **Breakers** per dependency per cell: open at 50% failures over 20 calls in 30 s, or at p95 above 2× budget. Probe again after 15 s. While open, the signal returns `unknown` immediately, and the mode controller may switch to DEGRADED_DETECTION or TELCO_DEGRADED.
+- **Bulkheads:** separate worker and connection pools for business hot paths, public channels, Guardian media and batch. Postgres pool split: hot 60%, channels 25%, batch 15%. Batch can never starve a live call.
+- **Budgets:** agent server-tool handlers 800 ms · Guardian session maximum 6 min · challenge answer window 8 s with 1 retry · hot DB statement timeout 2 s, batch 60 s · edge request timeout 30 s.
+
+## 13. Caching
+
+| Data | Where | TTL | Invalidated by | Notes |
+| --- | --- | --- | --- | --- |
+| SIM "not swapped" | Valkey | 60 s | SIM Swap Subscription events | Short on purpose: the attack is a swap |
+| SIM "swapped at T" | Valkey | 10 min | Subscription events |  |
+| Call forwarding status | Valkey | 60 s | Call Forwarding Signal events |  |
+| Number reputation band | Valkey | 5 min | Recompute job publish | Stale-while-revalidate allowed |
+| Verified-call registration | Valkey + Postgres | Until the call window ends | Cancel or expiry |  |
+| Detector result | Postgres | Immutable per audio hash + detector version | Model version change |  |
+| Policy bundle | In-process | Until version change | Signed pub/sub update |  |
+| Official contact registry | In-process + Valkey | 1 h | Signed update | Source of every phone number agents may say |
+| Static web assets | Edge | 1 year, hashed filenames | Deploy |  |
+| HTML | Edge | 60 s | Deploy |  |
+| API responses | Never at the edge | Not applicable | Not applicable |  |
+
+Rules:
+
+- **Never cache `unknown`.** The next request must try again.
+- No cross-tenant cache entries unless the data is public or hashed.
+- Single-flight per key (2 s Valkey lock) prevents stampedes. Stale-while-revalidate is allowed for reputation, **never** for SIM or forwarding status.
+
+## 14. Active-active and disaster recovery
+
+**Model:** every cell is active for its own country. Inside a cell, stateless services run active-active across two zones or data centres. Postgres runs a **single writer** with a **synchronous standby** in the second zone and a witness (Patroni). That gives **RPO 0** and **RTO of 5 minutes or less** for a zone loss. Valkey loss is tolerated, because caches rebuild and rate limits fall back to conservative in-process limits.
+
+| Scenario | Behaviour | Target |
+| --- | --- | --- |
+| Pod or node loss | Kubernetes reschedules. Guardian calls resume from checkpoint or exit gracefully. | No user-visible impact |
+| Zone loss | Automatic Postgres failover to the sync standby | RPO 0, RTO 5 min or less |
+| Postgres primary loss | Same as zone loss. Meanwhile the cell enters READ_ONLY. | RTO 5 min or less |
+| Whole cell loss | Edge serves a static notice: "Shield is offline. Hang up and call your bank on the number on your card." Bank integrations fall back to `step_up` by contract. | Restore per runbook. Personal data does not fail over abroad. |
+| Data corruption | Point-in-time recovery from WAL archive (35 days) into a new cluster | RPO 5 min or less |
+
+**Residency:**
+
+- No personal data crosses cells. Only HMAC-hashed numbers (keys rotate per exchange epoch), aggregates, signed policies and model artefacts do.
+- In-country hosting options to confirm: UAE (AWS me-central-1, Azure UAE North or local providers); Kenya (Nairobi colocation such as iXAfrica or Africa Data Centres); Uganda (Kampala colocation such as Raxio); Tanzania (Dar es Salaam colocation such as Raxio or Wingu Africa).
+- If edge TLS termination outside the country conflicts with residency rules, sensitive endpoints bypass the edge proxy (DNS-only) or use regional edge services. Counsel confirms per market.
+
+**Releases:** cell by cell. Sandbox → UG 5% → 50% → 100% → TZ → KE → AE, with automatic rollback on error-budget burn.
+
+**Game days:** quarterly zone-failover drill and annual full-cell restore from backup, with measured RPO and RTO recorded in the audit log.
+
+## 15. Realtime
+
+Realtime classes, deadlines, contact-centre streaming, time zones and event delivery are specified in 09. This section covers the console stream, Guardian media and call affinity.
+
+- **Console:** Server-Sent Events at `/v1/stream?topics=cases,holds,mode` with `Last-Event-ID` resume and 15 s heartbeats. Fan-out uses Postgres `LISTEN/NOTIFY` into Valkey pub/sub.
+- **Guardian media:** the provider streams the call as μ-law 8 kHz over WebSocket with separate tracks. Shield's own outbound speech track is excluded. The inbound track is the merged call, so scoring uses only the **challenge window**, during which the user has been asked to stay silent. If diarisation finds more than one voice in the window, the voice signal is `unknown`.
+- **Call affinity:** each Guardian session is pinned to one media-gateway pod by consistent hashing on the call ID. Challenge state (words, timings, attempts) is checkpointed to Valkey every 2 s. After a pod restart, the session resumes, or the agent says "Shield has to leave this call. Please be careful." and the private result arrives by message.
+
+## 16. AI and model gateway
+
+- Every LLM call (helper chat, console copilot, report summaries) goes through an internal gateway: model allow-list, per-tenant budget, redaction before the prompt, prompt version registry, hashed prompt logs, timeouts and fallbacks.
+- **Generative model output is never an input to `decision`, `verdict`, holds or releases.** The engine accepts only typed signals from deterministic sources: detectors, telco APIs, the verified-call registry and reputation.
+- Classifier signals (detectors, the story-pressure classifier) are versioned and evaluated. The story signal can **only add risk**. It can never produce Clear.
+- What agents say about a result comes from templates filled by the engine and delivered by `send_private_result`. The LLM never words a verdict.
+
+## 17. Security
+
+| Area | Control |
+| --- | --- |
+| Business authentication | OAuth 2.0 client credentials with `private_key_jwt` and mTLS-bound tokens (RFC 8705), 10-minute tokens. API keys in sandbox only. |
+| Console | SSO (OIDC or SAML with the bank's IdP), WebAuthn for operators, step-up authentication for releases and policy activation. RBAC plus region and tenant attributes. |
+| Public app | Device-bound keys in Secure Enclave or StrongBox, App Attest and Play Integrity |
+| Encryption | TLS 1.3 in transit. AES-256 at rest with per-cell KMS. Envelope encryption. Tenant BYOK (HSM-backed) for evidence. |
+| Deletion | Crypto-shred by destroying data keys: per clip for audio, per subject for erasure requests |
+| Phone numbers | Stored as HMAC-SHA256 with a cell pepper held in the HSM for lookup, plus an encrypted value only where display is required |
+| Secrets | Vault or cloud KMS, 90-day rotation, dual-valid windows for tool and webhook secrets |
+| Tenant isolation | Postgres row-level security on `tenant_id`. Dedicated schemas or clusters for top-tier tenants. |
+| Supply chain | Signed images (cosign), SBOMs, admission policy that rejects unsigned images |
+
+## 18. Observability and SLOs
+
+**Key metrics (OpenTelemetry → Prometheus):**
+
+| Metric | Why it matters |
+| --- | --- |
+| `shield_decision_latency_ms{route,cell}` | Hot-path budgets |
+| `shield_signal_unknown_total{signal,reason}` | Dependency health as users feel it |
+| `shield_verdict_total{verdict,channel,cell}` | Verdict mix and drift |
+| `shield_verdict_clear_with_missing_evidence_total` | **Must always be 0.** Any increment pages on-call and enters SAFE_HALT for public verdicts. |
+| `shield_verdict_clear_with_single_general_detector_total` | **Must always be 0.** Same response. |
+| `shield_detector_latency_ms{detector}` · `shield_detector_error_total{detector}` | Breaker inputs |
+| `shield_telco_latency_ms{provider,api}` · `shield_telco_unknown_ratio{provider}` | Telco health per operator |
+| `shield_queue_depth{queue}` · `shield_queue_oldest_age_seconds{queue}` | Backlog and shedding |
+| `shield_webhook_delivery_lag_seconds{tenant}` | Tenant SLO |
+| `shield_guardian_outcome_total{outcome}` | Completed, caller hung up, merge failed, timeout |
+| `shield_agent_tool_latency_ms{tool}` | Agent responsiveness |
+| `shield_audit_chain_verified` | 1 or 0, hourly |
+| `shield_cost_per_check_usd{channel}` | Cost runaway guard |
+| `shield_appeals_upheld_total` | Real-world false positives |
+
+| SLO | Target | Window |
+| --- | --- | --- |
+| `assess` and `otp-guard` availability (non-5xx) | 99.95% | 30 days |
+| `otp-guard` latency, warm cache | p95 150 ms or less | 30 days |
+| Verified-call lookup | p95 100 ms or less | 30 days |
+| WhatsApp verdict | p95 10 s or less | 30 days |
+| USSD screen | p95 2 s or less | 30 days |
+| Webhook delivery | p95 60 s or less | 30 days |
+| Clear on missing evidence | 0 events | Always |
+| Audit-chain verification | 100% of hourly runs pass | Always |
+- **Alerting** uses multi-window burn rates (fast: 1 h at 14.4×, slow: 6 h at 6×).
+- **Logs** are structured JSON, redacted at source: numbers appear as a hash plus last 3 digits, with no audio and no public message bodies. 30 days hot.
+- **Traces** keep 10% of requests plus 100% of errors, for 7 days.
+- **Error tracking** (Sentry) runs with PII scrubbing on both client and server.
+
+## 19. Capacity (pilot sizing per cell, to validate with load tests)
+
+| Item | Pilot assumption |
+| --- | --- |
+| Business traffic | 50 rps `assess`, 200 rps `otp-guard` at peak |
+| Public users | 100,000 monthly active, 5,000 voice checks and 200 Guardian sessions per day |
+| API pods | 3 minimum across 2 zones, autoscale on p95 latency and CPU |
+| Detect service | 1 GPU (NVIDIA L4 class), autoscale to 4. Throughput per GPU set by the load test. |
+| Postgres | 4 vCPU / 16 GB primary + sync standby, PgBouncer |
+| Valkey | 2 GB with replica |
+| Load tests (k6) | 3× forecast peak for 1 h · 24 h soak · 10× spike for 5 min |
+
+## 20. Degradation map
+
+| Failure | Effect on signals | Public sees | Bank gets | Mode |
+| --- | --- | --- | --- | --- |
+| D1 ElevenLabs classifier down | Lose provider-specific positives only | Unchanged | Unchanged | NORMAL, alert |
+| One general detector down | Voice can no longer be `no_signs` | More "We can't tell" | More `step_up` | DEGRADED_DETECTION |
+| All detectors down | Voice `unknown` | Inconclusive + safe default | Voice `unknown` | DEGRADED_DETECTION |
+| Telco API down | SIM and forwarding `unknown` | "We couldn't check the SIM card" | `step_up` for OTP and payee changes | TELCO_DEGRADED |
+| ElevenLabs Agents down | Guardian unavailable | "Use Ask-it-yourself: ask the caller something only the real person knows." | Not affected | VOICE_DEGRADED (text-only) |
+| WhatsApp API down | Channel down | Results by SMS and push | Not affected | NORMAL, channel incident |
+| SMS aggregator down | Failover to secondary | Possible delay | Not affected | NORMAL |
+| Postgres primary down | Reads from cache. No new holds or audit writes. | Checks continue. Reports are queued on device. | `SH-MODE-503` with `safeAction: step_up` | READ_ONLY |
+| Audit-chain verification fails | State changes stop | Checks continue with an Inconclusive floor | Holds and releases blocked | SAFE_HALT |
+| Valkey down | Caches miss and breakers protect the telcos. Conservative rate limits. | Slower | Slower | NORMAL or DEGRADED |
+
+Operating modes, triggers and exits are defined in **05 — Edge Cases, Failsafes & Operating Modes**.
