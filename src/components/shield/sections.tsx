@@ -55,15 +55,17 @@ export function SectionHead({
   eyebrow,
   title,
   lede,
+  headingId,
 }: {
   eyebrow: string;
   title: string;
   lede?: string;
+  headingId?: string;
 }) {
   return (
     <div className="mx-auto max-w-2xl text-center">
       <p className="font-mono text-[11px] font-semibold uppercase tracking-[0.2em] text-primary">{eyebrow}</p>
-      <h2 className="mt-3 text-3xl font-extrabold tracking-tight text-balance sm:text-4xl">{title}</h2>
+      <h2 id={headingId} className="mt-3 text-3xl font-extrabold tracking-tight text-balance sm:text-4xl">{title}</h2>
       {lede && <p className="mt-4 text-lg leading-relaxed text-muted-foreground">{lede}</p>}
     </div>
   );
@@ -597,7 +599,7 @@ export function SiteFooter() {
           </p>
         </div>
       </div>
-      <div className="border-t border-console-line">
+      <div className="safe-bottom border-t border-console-line">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-2 px-4 py-4 font-mono text-[10.5px] uppercase tracking-[0.16em] text-console-ink/40 sm:px-6">
           <span>© 2026 SecureVoice · demo environment</span>
           <span>verdicts are advice, not certainty</span>

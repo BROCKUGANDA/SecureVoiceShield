@@ -42,7 +42,27 @@ export interface AppendedAudit {
   createdAt: string;
 }
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Append with a bounded retry: SQLite can briefly return "database is locked"
+ * under burst load. The evidence entry MUST commit — retry rather than fail
+ * the decision, and surface the error only after the last attempt (I-3).
+ */
 export async function appendAudit(input: AuditInput): Promise<AppendedAudit> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      return await appendAuditOnce(input);
+    } catch (error) {
+      lastError = error;
+      await sleep(120 * (attempt + 1));
+    }
+  }
+  throw lastError;
+}
+
+async function appendAuditOnce(input: AuditInput): Promise<AppendedAudit> {
   const reasonCodes = JSON.stringify(input.reasonCodes ?? []);
   const inputDigest = digest(input.input);
 

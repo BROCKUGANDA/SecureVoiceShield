@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { ok, problem } from "@/lib/api";
+import { ok, problem, readJson } from "@/lib/api";
+import { rateLimit } from "@/lib/rate-limit";
 import { GUARDIAN_SCRIPT, pickChallengeWords, type GuardianLang } from "@/lib/shield-engine";
 
 export const dynamic = "force-dynamic";
@@ -12,12 +13,15 @@ const Body = z.object({ language: z.enum(["en", "sw", "lg"]) });
  * variables and never chooses them itself (03, section 3.1).
  */
 export async function POST(req: Request) {
-  let body: unknown;
-  try {
-    body = await req.json();
-  } catch {
-    return problem(400, "Invalid JSON body", "SH-BODY-400");
+  const limit = rateLimit(req, "guardian-session", 20);
+  if (!limit.ok) {
+    return problem(429, "Too many sessions", "SH-RATE-429", undefined, undefined, {
+      "Retry-After": String(limit.retryAfterSec),
+    });
   }
+
+  const body = await readJson(req);
+  if (body === undefined) return problem(400, "Invalid JSON body", "SH-BODY-400");
   const parsed = Body.safeParse(body);
   if (!parsed.success) {
     return problem(422, "Invalid request", "SH-GUARDIAN-422", "language must be en, sw or lg.");

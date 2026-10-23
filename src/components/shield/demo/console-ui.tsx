@@ -64,7 +64,7 @@ export function SandboxChip({ label, onClick, active }: { label: string; onClick
       type="button"
       onClick={onClick}
       className={cn(
-        "min-h-9 rounded-full border px-3.5 py-1.5 text-left font-mono text-[11px] tracking-wide transition-all",
+        "min-h-9 rounded-full border px-3.5 py-1.5 text-left font-mono text-[11px] tracking-wide transition-all focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-verdict-verified",
         active
           ? "border-verdict-verified/60 bg-verdict-verified/15 text-verdict-verified"
           : "border-console-line bg-white/[0.03] text-console-ink/75 hover:border-verdict-verified/40 hover:text-verdict-verified",
@@ -81,20 +81,22 @@ export function ConsoleButton({
   disabled,
   variant = "primary",
   className,
+  type = "button",
 }: {
   children: React.ReactNode;
   onClick?: () => void;
   disabled?: boolean;
   variant?: "primary" | "ghost";
   className?: string;
+  type?: "button" | "submit";
 }) {
   return (
     <button
-      type="button"
+      type={type}
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        "inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-5 text-sm font-semibold transition-all disabled:cursor-not-allowed disabled:opacity-50",
+        "inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-5 text-sm font-semibold transition-all focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-verdict-verified disabled:cursor-not-allowed disabled:opacity-50",
         variant === "primary"
           ? "bg-verdict-verified text-white shadow-[0_10px_24px_-10px_rgba(14,95,70,0.8)] hover:brightness-110"
           : "border border-console-line bg-white/[0.04] text-console-ink hover:bg-white/[0.08]",
@@ -109,7 +111,12 @@ export function ConsoleButton({
 export function RunLog({ lines }: { lines: React.ReactNode[] }) {
   if (lines.length === 0) return null;
   return (
-    <div className="mt-5 space-y-1.5 rounded-xl border border-console-line bg-black/25 p-4" aria-live="polite">
+    <div
+      className="mt-5 space-y-1.5 rounded-xl border border-console-line bg-black/25 p-4"
+      role="log"
+      aria-live="polite"
+      aria-label="Check pipeline log"
+    >
       {lines.map((l, i) => (
         <div key={i}>{l}</div>
       ))}
@@ -120,7 +127,10 @@ export function RunLog({ lines }: { lines: React.ReactNode[] }) {
 /** Error / degraded card rendered from RFC 9457 problem+json. */
 export function ProblemCard({ title, code, detail }: { title: string; code: string; detail?: string }) {
   return (
-    <div className="mt-5 rounded-2xl border border-verdict-caution/50 bg-verdict-caution/10 p-5">
+    <div
+      role="alert"
+      className="mt-5 rounded-2xl border border-verdict-caution/50 bg-verdict-caution/10 p-5"
+    >
       <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-verdict-caution">{code}</p>
       <p className="mt-1 font-semibold text-verdict-caution">{title}</p>
       {detail && <p className="mt-1 text-sm text-console-ink/80">{detail}</p>}

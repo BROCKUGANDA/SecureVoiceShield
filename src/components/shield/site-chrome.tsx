@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { ShieldCheck, ShieldAlert } from "lucide-react";
 import { ModePill } from "./mode-pill";
+import { ThemeToggle } from "./theme-toggle";
+import { MobileNav } from "./mobile-nav";
 
 const NAV = [
   { href: "#demo", label: "Live demo" },
@@ -45,14 +47,14 @@ export function GoldenRuleBar() {
 export function SiteHeader() {
   return (
     <header className="sticky top-0 z-50 border-b border-border/80 bg-background/85 backdrop-blur-md">
-      <div className="mx-auto flex h-16 max-w-7xl items-center gap-4 px-4 sm:px-6">
+      <div className="relative mx-auto flex h-16 max-w-7xl items-center gap-3 px-4 sm:px-6">
         <Link href="/" className="flex items-center gap-2.5" aria-label="SecureVoice Shield home">
           <span className="grid size-9 place-items-center rounded-xl bg-primary text-primary-foreground shadow-sm">
             <ShieldCheck className="size-5" strokeWidth={2.2} />
           </span>
           <span className="leading-tight">
             <span className="block text-sm font-bold tracking-tight">SecureVoice Shield</span>
-            <span className="block font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+            <span className="hidden font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground sm:block">
               Is this voice real?
             </span>
           </span>
@@ -70,14 +72,16 @@ export function SiteHeader() {
           ))}
         </nav>
 
-        <div className="ml-auto flex items-center gap-3 lg:ml-2">
+        <div className="ml-auto flex items-center gap-2 lg:ml-2 sm:gap-3">
+          <ThemeToggle />
           <ModePill compact />
           <a
             href="#demo"
-            className="hidden rounded-full bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-transform hover:-translate-y-px sm:inline-flex"
+            className="hidden rounded-full bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-transform hover:-translate-y-px md:inline-flex"
           >
             Run a check
           </a>
+          <MobileNav />
         </div>
       </div>
     </header>

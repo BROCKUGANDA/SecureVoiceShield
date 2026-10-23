@@ -158,7 +158,8 @@ export function VoiceCheck() {
         <ConsoleButton
           variant={activeName ? "ghost" : "primary"}
           onClick={() => {
-            const s = SAMPLES[0];
+            // Re-run the sample currently loaded (if any); otherwise the first one.
+            const s = SAMPLES.find((x) => x.fileName === activeName) ?? SAMPLES[0];
             run({ fileName: s.fileName, sizeKb: s.sizeKb, durationSec: s.durationSec, preset: s.preset });
           }}
           disabled={phase === "running"}

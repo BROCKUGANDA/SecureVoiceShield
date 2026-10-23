@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { appendAudit } from "@/lib/audit";
-import { ok, problem } from "@/lib/api";
+import { degraded, ok, problem, readJson } from "@/lib/api";
+import { rateLimit } from "@/lib/rate-limit";
 import {
   assessGuardian,
   REASON_COPY,
@@ -23,51 +24,61 @@ const Body = z.object({
  * the private result. The agent never sees any of this (G-1, G-4).
  */
 export async function POST(req: Request) {
-  let body: unknown;
-  try {
-    body = await req.json();
-  } catch {
-    return problem(400, "Invalid JSON body", "SH-BODY-400");
+  const limit = rateLimit(req, "guardian-complete", 20);
+  if (!limit.ok) {
+    return problem(429, "Too many requests", "SH-RATE-429", undefined, undefined, {
+      "Retry-After": String(limit.retryAfterSec),
+    });
   }
+
+  const body = await readJson(req);
+  if (body === undefined) return problem(400, "Invalid JSON body", "SH-BODY-400");
   const parsed = Body.safeParse(body);
   if (!parsed.success) {
     return problem(422, "Invalid request", "SH-GUARDIAN-422");
   }
   const { sessionId, scenario, language } = parsed.data;
 
-  const outcome = assessGuardian(scenario as GuardianScenario);
-  const lang = language as GuardianLang;
+  try {
+    const outcome = assessGuardian(scenario as GuardianScenario);
+    const lang = language as GuardianLang;
 
-  const audit = await appendAudit({
-    action: "guardian.completed",
-    resource: sessionId,
-    reasonCodes: outcome.reasons,
-    input: { sessionId, scenario },
-  });
+    const audit = await appendAudit({
+      action: "guardian.completed",
+      resource: sessionId,
+      reasonCodes: outcome.reasons,
+      input: { sessionId, scenario },
+    });
 
-  await db.decision.create({
-    data: {
-      kind: "guardian",
-      subject: sessionId,
-      subjectMasked: "live call \u2022 " + sessionId,
+    await db.decision.create({
+      data: {
+        kind: "guardian",
+        subject: sessionId,
+        subjectMasked: "live call \u2022 " + sessionId,
+        verdict: outcome.verdict,
+        reasons: JSON.stringify(outcome.reasons),
+        action: outcome.verdict === "danger" ? "hold" : outcome.verdict === "clear" ? "allow" : "step_up",
+        signals: JSON.stringify({ scenario, language }),
+        latencyMs: outcome.latencyMs,
+        auditSeq: audit.seq,
+      },
+    });
+
+    return ok({
+      sessionId,
       verdict: outcome.verdict,
-      reasons: JSON.stringify(outcome.reasons),
-      action: outcome.verdict === "danger" ? "hold" : outcome.verdict === "clear" ? "allow" : "step_up",
-      signals: JSON.stringify({ scenario, language }),
-      latencyMs: outcome.latencyMs,
-      auditSeq: audit.seq,
-    },
-  });
-
-  return ok({
-    sessionId,
-    verdict: outcome.verdict,
-    verdictWord: verdictWord(outcome.verdict, lang),
-    reasons: outcome.reasons,
-    reasonCopy: outcome.reasons.map((c) => REASON_COPY[c]),
-    deliveredVia: outcome.via,
-    hapticPulses: outcome.verdict === "danger" ? 3 : outcome.verdict === "caution" ? 2 : 1,
-    inCallLatencyMs: outcome.latencyMs,
-    audit: { seq: audit.seq, entryHash: audit.entryHash },
-  });
+      verdictWord: verdictWord(outcome.verdict, lang),
+      reasons: outcome.reasons,
+      reasonCopy: outcome.reasons.map((c) => REASON_COPY[c]),
+      deliveredVia: outcome.via,
+      hapticPulses: outcome.verdict === "danger" ? 3 : outcome.verdict === "caution" ? 2 : 1,
+      inCallLatencyMs: outcome.latencyMs,
+      audit: { seq: audit.seq, entryHash: audit.entryHash },
+    });
+  } catch {
+    // The private result could not be committed: say so, never fake one (G-4).
+    return degraded(
+      "The private result could not be committed. If the call continues, treat it as unverified and call back on a saved number.",
+    );
+  }
 }

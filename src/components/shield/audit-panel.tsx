@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CheckCircle2, Loader2, RefreshCw, ShieldCheck, XCircle, Link2 } from "lucide-react";
+import { CheckCircle2, Loader2, RefreshCw, ShieldCheck, XCircle, Link2, TriangleAlert } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useToast } from "@/hooks/use-toast";
 
 interface AuditEntry {
   seq: number;
@@ -30,21 +31,65 @@ const ACTION_TONE: Record<string, string> = {
   "verified_call.looked_up": "bg-verdict-verified/10 text-verdict-verified",
 };
 
+function SkeletonRow() {
+  return (
+    <li className="grid gap-x-6 gap-y-1 px-5 py-3.5 sm:grid-cols-[86px_1fr_auto] sm:items-center sm:px-6">
+      <span className="h-3.5 w-14 animate-pulse rounded bg-white/10" />
+      <div className="min-w-0 space-y-1.5">
+        <span className="block h-3.5 w-40 animate-pulse rounded bg-white/10" />
+        <span className="block h-2.5 w-64 animate-pulse rounded bg-white/5" />
+      </div>
+      <span className="hidden h-3 w-24 animate-pulse rounded bg-white/10 sm:block" />
+    </li>
+  );
+}
+
 export function AuditPanel() {
   const [data, setData] = useState<AuditResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [failed, setFailed] = useState(false);
   // Bumping `tick` re-runs the fetch — used by the manual "Re-verify" button.
   const [tick, setTick] = useState(0);
+  const { toast } = useToast();
 
   useEffect(() => {
     let alive = true;
+    const isReverify = tick > 0; // passive first load stays silent
     (async () => {
+      setLoading(true);
+      setFailed(false);
       try {
         const res = await fetch("/api/audit", { cache: "no-store" });
+        if (!res.ok) throw new Error(String(res.status));
         const json = (await res.json()) as AuditResponse;
-        if (alive) setData(json);
+        if (alive) {
+          setData(json);
+          if (isReverify) {
+            toast(
+              json.integrity.ok
+                ? {
+                    title: "Chain verified",
+                    description: `${json.integrity.checked} entries recomputed from genesis — every hash matches.`,
+                  }
+                : {
+                    title: "Chain integrity FAILED",
+                    description: `Broken at entry #${json.integrity.brokenAt}. This must be escalated.`,
+                  },
+            );
+          }
+        }
       } catch {
-        // keep last known state; never fake a green chain
+        // Keep last known state but say, out loud, that the read failed —
+        // never fake a green chain (F-1).
+        if (alive) {
+          setFailed(true);
+          if (isReverify) {
+            toast({
+              title: "Chain could not be read",
+              description: "The evidence log is unreachable. Treat all recent results as unverified.",
+            });
+          }
+        }
       } finally {
         if (alive) setLoading(false);
       }
@@ -55,6 +100,10 @@ export function AuditPanel() {
   }, [tick]);
 
   const integrity = data?.integrity;
+
+  function reverify() {
+    setTick((t) => t + 1);
+  }
 
   return (
     <div className="overflow-hidden rounded-3xl border border-console-line bg-console text-console-ink">
@@ -88,9 +137,9 @@ export function AuditPanel() {
           )}
           <button
             type="button"
-            onClick={() => setTick((t) => t + 1)}
+            onClick={reverify}
             disabled={loading}
-            className="inline-flex min-h-9 items-center gap-2 rounded-full border border-console-line px-3.5 font-mono text-[11px] uppercase tracking-widest text-console-ink/70 transition-colors hover:text-verdict-verified disabled:opacity-50"
+            className="inline-flex min-h-9 items-center gap-2 rounded-full border border-console-line px-3.5 font-mono text-[11px] uppercase tracking-widest text-console-ink/70 transition-colors hover:border-verdict-verified/40 hover:text-verdict-verified disabled:opacity-50"
           >
             {loading ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}
             Re-verify
@@ -99,40 +148,57 @@ export function AuditPanel() {
       </div>
 
       {/* Entries */}
-      <div className="nice-scroll max-h-96 overflow-y-auto">
-        {data && data.entries.length > 0 ? (
+      <div className="nice-scroll max-h-96 overflow-y-auto" aria-busy={loading}>
+        {failed && !data ? (
+          <div className="flex flex-col items-center gap-3 px-6 py-12 text-center">
+            <TriangleAlert className="size-6 text-verdict-caution" aria-hidden />
+            <p className="font-mono text-[12px] text-console-ink/70">
+              evidence log unreachable — nothing is claimed green
+            </p>
+            <button
+              type="button"
+              onClick={reverify}
+              className="inline-flex min-h-9 items-center gap-2 rounded-full border border-console-line px-4 font-mono text-[11px] uppercase tracking-widest text-console-ink/80 transition-colors hover:border-verdict-verified/40 hover:text-verdict-verified"
+            >
+              <RefreshCw className="size-3.5" /> Retry
+            </button>
+          </div>
+        ) : data && data.entries.length > 0 ? (
           <ol className="divide-y divide-console-line">
-            {data.entries.map((e) => (
-              <li key={e.seq} className="grid gap-x-6 gap-y-1 px-5 py-3.5 sm:grid-cols-[86px_1fr_auto] sm:items-center sm:px-6">
-                <span className="font-mono text-[12px] text-console-ink/40">#{String(e.seq).padStart(5, "0")}</span>
-                <div className="min-w-0">
-                  <p className="flex flex-wrap items-center gap-2">
-                    <span
-                      className={cn(
-                        "rounded-md px-2 py-0.5 font-mono text-[11px] font-semibold",
-                        ACTION_TONE[e.action] ?? "bg-white/5 text-console-ink/75",
-                      )}
-                    >
-                      {e.action}
-                    </span>
-                    {e.reasonCodes.slice(0, 3).map((r) => (
-                      <span key={r} className="font-mono text-[10.5px] text-console-ink/45">
-                        {r}
+            {loading &&
+              data.entries.slice(0, 3).map((e) => <SkeletonRow key={"sk-" + e.seq} />)}
+            {!loading &&
+              data.entries.map((e) => (
+                <li key={e.seq} className="grid gap-x-6 gap-y-1 px-5 py-3.5 sm:grid-cols-[86px_1fr_auto] sm:items-center sm:px-6">
+                  <span className="font-mono text-[12px] text-console-ink/40">#{String(e.seq).padStart(5, "0")}</span>
+                  <div className="min-w-0">
+                    <p className="flex flex-wrap items-center gap-2">
+                      <span
+                        className={cn(
+                          "rounded-md px-2 py-0.5 font-mono text-[11px] font-semibold",
+                          ACTION_TONE[e.action] ?? "bg-white/5 text-console-ink/75",
+                        )}
+                      >
+                        {e.action}
                       </span>
-                    ))}
-                  </p>
-                  <p className="mt-0.5 truncate font-mono text-[10.5px] text-console-ink/40">
-                    {e.inputDigest} · policy {e.policyVersion}
-                  </p>
-                </div>
-                <div className="text-right">
-                  <p className="font-mono text-[10.5px] text-console-ink/40">
-                    {new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date(e.at))} UTC
-                  </p>
-                  <p className="font-mono text-[10.5px] text-verdict-verified/90">{e.entryHash.slice(7, 23)}…</p>
-                </div>
-              </li>
-            ))}
+                      {e.reasonCodes.slice(0, 3).map((r) => (
+                        <span key={r} className="font-mono text-[10.5px] text-console-ink/45">
+                          {r}
+                        </span>
+                      ))}
+                    </p>
+                    <p className="mt-0.5 truncate font-mono text-[10.5px] text-console-ink/40">
+                      {e.inputDigest} · policy {e.policyVersion}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="font-mono text-[10.5px] tabular-nums text-console-ink/40">
+                      {new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date(e.at))} UTC
+                    </p>
+                    <p className="font-mono text-[10.5px] text-verdict-verified/90">{e.entryHash.slice(7, 23)}…</p>
+                  </div>
+                </li>
+              ))}
           </ol>
         ) : (
           <p className="px-6 py-10 text-center font-mono text-[12px] text-console-ink/45">

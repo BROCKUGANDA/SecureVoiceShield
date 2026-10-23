@@ -163,7 +163,7 @@ export function VerdictCard({
     <div
       role="status"
       className={cn(
-        "relative overflow-hidden rounded-2xl border bg-card p-5 shadow-[0_1px_0_rgba(22,36,30,0.04),0_12px_32px_-18px_rgba(22,36,30,0.28)]",
+        "animate-line-in relative overflow-hidden rounded-2xl border bg-card p-5 shadow-[0_1px_0_rgba(22,36,30,0.04),0_12px_32px_-18px_rgba(22,36,30,0.28)]",
         verdictBorder(result.verdict),
         className,
       )}

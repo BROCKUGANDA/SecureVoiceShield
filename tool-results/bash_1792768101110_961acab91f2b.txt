@@ -1,0 +1,609 @@
+     1→import {
+     2→  AudioWaveform,
+     3→  MessageSquareWarning,
+     4→  CardSim,
+     5→  BookOpenText,
+     6→  ShieldCheck,
+     7→  MessagesSquare,
+     8→  Bot,
+     9→  MonitorDot,
+    10→  ArrowDown,
+    11→  KeyRound,
+    12→  Timer,
+    13→  ScrollText,
+    14→  Lock,
+    15→  Globe2,
+    16→  Wifi,
+    17→  Radio,
+    18→  ServerCog,
+    19→  CircuitBoard,
+    20→} from "lucide-react";
+    21→import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+    22→import { VerdictGlyph } from "./verdict";
+    23→import { VERDICT_META, type Verdict } from "@/lib/shield-engine";
+    24→
+    25→/* ------------------------------------------------------------------ */
+    26→/* Stats strip                                                         */
+    27→/* ------------------------------------------------------------------ */
+    28→
+    29→export function StatsStrip() {
+    30→  const stats = [
+    31→    { v: "17,152", l: "frauds & attempts reported to TCRA in one quarter (TZ, Q1 2025)" },
+    32→    { v: "80%+", l: "TTS operators caught by the live challenge (v1 target)" },
+    33→    { v: "< 2%", l: "false-red rate on genuine human voices (v1 target)" },
+    34→    { v: "< 10 s", l: "from a forwarded voice note to a plain-language reply" },
+    35→  ];
+    36→  return (
+    37→    <section aria-label="Why Shield exists" className="border-b border-border/70 bg-card/70">
+    38→      <div className="mx-auto grid max-w-7xl gap-8 px-4 py-10 sm:grid-cols-2 sm:px-6 lg:grid-cols-4">
+    39→        {stats.map((s) => (
+    40→          <div key={s.v} className="border-l-2 border-primary/30 pl-4">
+    41→            <p className="text-3xl font-extrabold tracking-tight">{s.v}</p>
+    42→            <p className="mt-1 text-sm leading-snug text-muted-foreground">{s.l}</p>
+    43→          </div>
+    44→        ))}
+    45→      </div>
+    46→    </section>
+    47→  );
+    48→}
+    49→
+    50→/* ------------------------------------------------------------------ */
+    51→/* Section shell                                                       */
+    52→/* ------------------------------------------------------------------ */
+    53→
+    54→export function SectionHead({
+    55→  eyebrow,
+    56→  title,
+    57→  lede,
+    58→}: {
+    59→  eyebrow: string;
+    60→  title: string;
+    61→  lede?: string;
+    62→}) {
+    63→  return (
+    64→    <div className="mx-auto max-w-2xl text-center">
+    65→      <p className="font-mono text-[11px] font-semibold uppercase tracking-[0.2em] text-primary">{eyebrow}</p>
+    66→      <h2 className="mt-3 text-3xl font-extrabold tracking-tight text-balance sm:text-4xl">{title}</h2>
+    67→      {lede && <p className="mt-4 text-lg leading-relaxed text-muted-foreground">{lede}</p>}
+    68→    </div>
+    69→  );
+    70→}
+    71→
+    72→/* ------------------------------------------------------------------ */
+    73→/* The four signals                                                    */
+    74→/* ------------------------------------------------------------------ */
+    75→
+    76→export function SignalsSection() {
+    77→  const signals = [
+    78→    {
+    79→      icon: <AudioWaveform className="size-5" />,
+    80→      id: "01 · audio forensics",
+    81→      title: "Does the audio look machine-made?",
+    82→      body: "At least two independent detectors scan every clip. One is the ElevenLabs AI Speech Classifier — 99% precision on its own audio — but it only knows ElevenLabs voices, so it is one signal, never the verdict.",
+    83→    },
+    84→    {
+    85→      icon: <MessageSquareWarning className="size-5" />,
+    86→      id: "02 · liveness",
+    87→      title: "Can it answer live?",
+    88→      body: "\u201CPlease repeat these words: basket, river, seven.\u201D Words are random per call, never numbers or dates. Real-time clones lag, glitch or drift; text-to-speech operators have to type — and typing shows.",
+    89→    },
+    90→    {
+    91→      icon: <CardSim className="size-5" />,
+    92→      id: "03 · the line",
+    93→      title: "Is the line trustworthy?",
+    94→      body: "Telco signals: a recent SIM swap, call forwarding switched on, number verification, VoIP posing as a mobile number. A swap is a risk signal — never proof on its own.",
+    95→    },
+    96→    {
+    97→      icon: <BookOpenText className="size-5" />,
+    98→      id: "04 · the story",
+    99→      title: "Does the story fit a scam?",
+   100→      body: "Urgency, secrecy, a new number (\u201Cmy phone broke\u201D), requests for one-time passcodes or PINs, payment by mobile money, gift cards or crypto. Story pressure adds risk — it can never clear anyone.",
+   101→    },
+   102→  ];
+   103→  return (
+   104→    <section id="signals" className="border-b border-border/70 py-20 sm:py-24">
+   105→      <div className="mx-auto max-w-7xl px-4 sm:px-6">
+   106→        <SectionHead
+   107→          eyebrow="How detection works"
+   108→          title="Four kinds of evidence. One cautious verdict."
+   109→          lede="Shield never relies on one test. Signals go into a deterministic, versioned rule pack — no model ever sits in a decision path."
+   110→        />
+   111→        <div className="mt-12 grid gap-5 sm:grid-cols-2">
+   112→          {signals.map((s) => (
+   113→            <article
+   114→              key={s.id}
+   115→              className="group rounded-2xl border border-border bg-card p-6 transition-all hover:-translate-y-0.5 hover:border-primary/35 hover:shadow-[0_16px_40px_-24px_rgba(18,83,63,0.4)]"
+   116→            >
+   117→              <div className="flex items-center justify-between">
+   118→                <span className="grid size-11 place-items-center rounded-xl bg-secondary text-primary">{s.icon}</span>
+   119→                <span className="font-mono text-[10.5px] uppercase tracking-[0.16em] text-muted-foreground">{s.id}</span>
+   120→              </div>
+   121→              <h3 className="mt-4 text-lg font-bold">{s.title}</h3>
+   122→              <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{s.body}</p>
+   123→            </article>
+   124→          ))}
+   125→        </div>
+   126→        <div className="mx-auto mt-8 flex max-w-3xl items-start gap-3 rounded-2xl border border-primary/25 bg-secondary/60 p-5">
+   127→          <ShieldCheck className="mt-0.5 size-5 shrink-0 text-primary" />
+   128→          <p className="text-sm leading-relaxed text-foreground/90">
+   129→            <b>The floor rule:</b> no single component can produce <i>Clear</i>. It needs every
+   130→            detector to answer, at least two general detectors agreeing, and no{" "}
+   131→            <span className="font-mono text-sm">unknown</span> signal. Missing or late evidence
+   132→            makes the answer more cautious — never more reassuring.
+   133→          </p>
+   134→        </div>
+   135→      </div>
+   136→    </section>
+   137→  );
+   138→}
+   139→
+   140→/* ------------------------------------------------------------------ */
+   141→/* Verdict gallery                                                     */
+   142→/* ------------------------------------------------------------------ */
+   143→
+   144→const VERDICT_ORDER: Verdict[] = ["clear", "caution", "danger", "inconclusive", "verified"];
+   145→
+   146→const VERDICT_COLOR_WORD: Record<Verdict, string> = {
+   147→  clear: "Emerald",
+   148→  caution: "Amber",
+   149→  danger: "Red",
+   150→  inconclusive: "Slate",
+   151→  verified: "Deep green",
+   152→};
+   153→
+   154→export function VerdictsSection() {
+   155→  return (
+   156→    <section id="verdicts" className="border-b border-border/70 bg-secondary/40 py-20 sm:py-24">
+   157→      <div className="mx-auto max-w-7xl px-4 sm:px-6">
+   158→        <SectionHead
+   159→          eyebrow="Five verdicts"
+   160→          title="Shape, colour, word and haptic — never colour alone"
+   161→          lede="Every result pairs four channels so it works on a cracked phone, for a low-vision user, in any of eleven languages."
+   162→        />
+   163→        <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+   164→          {VERDICT_ORDER.map((v) => {
+   165→            const meta = VERDICT_META[v];
+   166→            return (
+   167→              <article key={v} className="flex flex-col rounded-2xl border border-border bg-card p-6 shadow-sm">
+   168→                <VerdictGlyph verdict={v} size={56} />
+   169→                <h3 className="mt-4 text-lg font-bold">{meta.name}</h3>
+   170→                <p className="mt-1 text-sm font-semibold text-foreground/85">{meta.wording}</p>
+   171→                <p className="mt-2 flex-1 text-sm leading-relaxed text-muted-foreground">{meta.advice}</p>
+   172→                <p className="mt-4 border-t border-border/70 pt-3 font-mono text-[10.5px] uppercase tracking-wider text-muted-foreground">
+   173→                  {meta.shape} · {VERDICT_COLOR_WORD[v]} · {meta.hapticPulses === 0 ? "no pulses" : `${meta.hapticPulses} pulse${meta.hapticPulses > 1 ? "s" : ""}`}
+   174→                </p>
+   175→              </article>
+   176→            );
+   177→          })}
+   178→          <article className="flex flex-col justify-center rounded-2xl border border-dashed border-primary/40 bg-primary/[0.04] p-6">
+   179→            <p className="font-mono text-[10.5px] uppercase tracking-[0.16em] text-primary">the golden rule</p>
+   180→            <p className="mt-2 text-xl font-bold leading-snug">
+   181→              Shield never calls you first.
+   182→            </p>
+   183→            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+   184→              Any call claiming to be Shield is a scam. The best result Shield can give is
+   185→              &ldquo;No warning signs found&rdquo; — never &ldquo;definitely real&rdquo;.
+   186→            </p>
+   187→          </article>
+   188→        </div>
+   189→      </div>
+   190→    </section>
+   191→  );
+   192→}
+   193→
+   194→/* ------------------------------------------------------------------ */
+   195→/* Products                                                            */
+   196→/* ------------------------------------------------------------------ */
+   197→
+   198→const PUBLIC_FEATURES = [
+   199→  { icon: <MessagesSquare className="size-4" />, t: "WhatsApp check bot", d: "Forward a suspicious voice note, get a traffic-light reply in your language — text plus an optional voice reply." },
+   200→  { icon: <Timer className="size-4" />, t: "Live Call Guardian", d: "Merge Shield into the call. It asks a liveness question, then leaves. The verdict reaches you privately." },
+   201→  { icon: <KeyRound className="size-4" />, t: "Ask-it-yourself", d: "No merge? Shield sends four random words by SMS, WhatsApp or USSD for you to ask the caller to repeat." },
+   202→  { icon: <Radio className="size-4" />, t: "USSD & SMS", d: "Check a number, confirm your bank is really calling, report a scam — no smartphone or data needed." },
+   203→  { icon: <Lock className="size-4" />, t: "Family safe word kit", d: "Guided setup of a secret family phrase. Shield never stores or asks for the safe word." },
+   204→  { icon: <ScrollText className="size-4" />, t: "Scam report", d: "One tap adds the number and an audio fingerprint — not a voiceprint — to the shared blocklist." },
+   205→];
+   206→
+   207→const BIZ_FEATURES = [
+   208→  { t: "POST /v1/assess", d: "Phone number, optional audio, transaction context → risk score, reasons, recommended action." },
+   209→  { t: "OTP guard", d: "Check for a recent SIM swap before sending an SMS code — else in-app confirmation or a branch visit." },
+   210→  { t: "Cooling-off hold", d: "After a SIM swap or a new payee, large transfers hold for 30–60 minutes. Releases need two approvers." },
+   211→  { t: "Verified bank call", d: "Register outbound calls; customers see \u201CYour bank is calling you now.\u201D No banner means hang up." },
+   212→  { t: "Evidence log", d: "A hash-chained record of every decision — verifiable with open-source shield-verify." },
+   213→];
+   214→
+   215→export function ProductsSection() {
+   216→  return (
+   217→    <section id="products" className="border-b border-border/70 py-20 sm:py-24">
+   218→      <div className="mx-auto max-w-7xl px-4 sm:px-6">
+   219→        <SectionHead
+   220→          eyebrow="Two products, one engine"
+   221→          title="Free for everyone. An API for banks and telcos."
+   222→          lede="The same verdicts, the same evidence chain — one public tier funded for safety, one business tier with holds, OTP guards and webhooks."
+   223→        />
+   224→        <div className="mt-12 grid gap-6 lg:grid-cols-2">
+   225→          {/* Public */}
+   226→          <div className="rounded-3xl border border-border bg-card p-6 sm:p-8">
+   227→            <div className="flex items-center justify-between">
+   228→              <h3 className="text-xl font-bold">Shield for Everyone</h3>
+   229→              <span className="rounded-full bg-verdict-clear/10 px-3 py-1 font-mono text-[11px] font-semibold uppercase tracking-wider text-verdict-clear">
+   230→                free · public
+   231→              </span>
+   232→            </div>
+   233→            <ul className="mt-6 space-y-4">
+   234→              {PUBLIC_FEATURES.map((f) => (
+   235→                <li key={f.t} className="flex gap-3">
+   236→                  <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg bg-secondary text-primary">{f.icon}</span>
+   237→                  <div>
+   238→                    <p className="text-sm font-bold">{f.t}</p>
+   239→                    <p className="mt-0.5 text-sm leading-snug text-muted-foreground">{f.d}</p>
+   240→                  </div>
+   241→                </li>
+   242→              ))}
+   243→            </ul>
+   244→          </div>
+   245→
+   246→          {/* Business */}
+   247→          <div className="flex flex-col rounded-3xl border border-console-line bg-console p-6 text-console-ink sm:p-8">
+   248→            <div className="flex items-center justify-between">
+   249→              <h3 className="text-xl font-bold text-console-ink">Shield for Banks &amp; Telcos</h3>
+   250→              <span className="rounded-full border border-console-line px-3 py-1 font-mono text-[11px] font-semibold uppercase tracking-wider text-verdict-caution">
+   251→                paid · api
+   252→              </span>
+   253→            </div>
+   254→            <ul className="mt-6 space-y-4">
+   255→              {BIZ_FEATURES.map((f) => (
+   256→                <li key={f.t} className="border-l-2 border-verdict-verified/50 pl-3">
+   257→                  <p className="font-mono text-[13px] font-semibold text-verdict-verified">{f.t}</p>
+   258→                  <p className="mt-0.5 text-sm leading-snug text-console-ink/75">{f.d}</p>
+   259→                </li>
+   260→              ))}
+   261→            </ul>
+   262→            <div className="mt-6 flex-1" />
+   263→            <pre className="nice-scroll overflow-x-auto rounded-2xl border border-console-line bg-black/35 p-4 font-mono text-[11.5px] leading-relaxed text-console-ink/85">
+   264→{`POST /v1/assess
+   265→{
+   266→  "msisdn":      "+255712345678",
+   267→  "channel":     "outbound_transfer",
+   268→  "amountMinor": 50000000,
+   269→  "currency":    "TZS"
+   270→}
+   271→
+   272→→ {
+   273→  "verdict":  "caution",
+   274→  "reasons":  ["SIM_SWAP_RECENT"],
+   275→  "action":   "step_up"   // allow · step_up · hold · review
+   276→}`}
+   277→            </pre>
+   278→            <p className="mt-3 flex items-center gap-2 font-mono text-[10.5px] uppercase tracking-wider text-console-ink/45">
+   279→              <Wifi className="size-3.5" /> every failure mode returns step_up — never allow
+   280→            </p>
+   281→          </div>
+   282→        </div>
+   283→      </div>
+   284→    </section>
+   285→  );
+   286→}
+   287→
+   288→/* ------------------------------------------------------------------ */
+   289→/* Agents                                                              */
+   290→/* ------------------------------------------------------------------ */
+   291→
+   292→const AGENTS = [
+   293→  {
+   294→    icon: <MessagesSquare className="size-5" />,
+   295→    name: "Guardian",
+   296→    channel: "Phone leg merged into a live call",
+   297→    purpose: "Disclose, run the repeat-after-me challenge, leave. The result goes privately to the user — the agent never learns it.",
+   298→    budget: "6 min cap · 12 turns · 8 tool calls",
+   299→  },
+   300→  {
+   301→    icon: <Bot className="size-5" />,
+   302→    name: "Helper",
+   303→    channel: "WhatsApp & in-app chat",
+   304→    purpose: "Check numbers and voice notes, explain results, file reports, teach safety in eleven locales.",
+   305→    budget: "30 turns · idle timeout 60 s",
+   306→  },
+   307→  {
+   308→    icon: <MonitorDot className="size-5" />,
+   309→    name: "Console Copilot",
+   310→    channel: "Business console (text)",
+   311→    purpose: "Explain cases, summarise scam waves, draft policy changes — drafts only; humans approve with four eyes.",
+   312→    budget: "20 turns per thread",
+   313→  },
+   314→];
+   315→
+   316→const INVARIANTS = [
+   317→  ["G-1", "Never sets or words a verdict"],
+   318→  ["G-2", "Never asks for a PIN, OTP or password"],
+   319→  ["G-3", "Numbers come from the registry only"],
+   320→  ["G-4", "Never learns the result it delivers"],
+   321→  ["G-5", "Says it is an AI, first sentence"],
+   322→  ["G-6", "Never claims certainty"],
+   323→  ["G-8", "Never calls first, never clones"],
+   324→  ["G-10", "Bounded sessions, scripted exits"],
+   325→];
+   326→
+   327→export function AgentsSection() {
+   328→  return (
+   329→    <section id="agents" className="border-b border-border/70 bg-secondary/40 py-20 sm:py-24">
+   330→      <div className="mx-auto max-w-7xl px-4 sm:px-6">
+   331→        <SectionHead
+   332→          eyebrow="Agents talk. They never decide."
+   333→          title="Three bounded workers on ElevenLabs Agents"
+   334→          lede="Every session gets one mission, an allow-list of tools and fixed budgets. Detection, verdicts, holds and releases come from the deterministic engine."
+   335→        />
+   336→        <div className="mt-12 grid gap-5 lg:grid-cols-3">
+   337→          {AGENTS.map((a) => (
+   338→            <article key={a.name} className="rounded-2xl border border-border bg-card p-6">
+   339→              <div className="flex items-center gap-3">
+   340→                <span className="grid size-11 place-items-center rounded-xl bg-primary text-primary-foreground">{a.icon}</span>
+   341→                <div>
+   342→                  <h3 className="font-bold">{a.name}</h3>
+   343→                  <p className="font-mono text-[10.5px] uppercase tracking-wider text-muted-foreground">{a.channel}</p>
+   344→                </div>
+   345→              </div>
+   346→              <p className="mt-4 text-sm leading-relaxed text-muted-foreground">{a.purpose}</p>
+   347→              <p className="mt-4 border-t border-border/70 pt-3 font-mono text-[10.5px] uppercase tracking-wider text-primary">{a.budget}</p>
+   348→            </article>
+   349→          ))}
+   350→        </div>
+   351→        <div className="mt-8 flex flex-wrap justify-center gap-2">
+   352→          {INVARIANTS.map(([id, label]) => (
+   353→            <span key={id} className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3.5 py-1.5 text-xs font-medium">
+   354→              <span className="font-mono font-bold text-primary">{id}</span>
+   355→              {label}
+   356→            </span>
+   357→          ))}
+   358→        </div>
+   359→      </div>
+   360→    </section>
+   361→  );
+   362→}
+   363→
+   364→/* ------------------------------------------------------------------ */
+   365→/* Architecture                                                        */
+   366→/* ------------------------------------------------------------------ */
+   367→
+   368→export function ArchitectureSection() {
+   369→  return (
+   370→    <section id="architecture" className="border-b border-border/70 py-20 sm:py-24">
+   371→      <div className="mx-auto max-w-7xl px-4 sm:px-6">
+   372→        <SectionHead
+   373→          eyebrow="Architecture"
+   374→          title="No model sits in a decision path"
+   375→          lede="Models produce signals; a versioned, tested rule pack turns signals into verdicts and actions."
+   376→        />
+   377→        <div className="relative mx-auto mt-12 max-w-4xl">
+   378→          <div className="space-y-0">
+   379→            <Plane
+   380→              tone="light"
+   381→              icon={<MessagesSquare className="size-4" />}
+   382→              name="Channels"
+   383→              items={["WhatsApp", "Live Call Guardian (PSTN)", "USSD", "SMS", "Mobile app", "Business API"]}
+   384→            />
+   385→            <PlaneConnector label="inbound events · server tools (scoped, signed, no verdict power)" />
+   386→            <Plane
+   387→              tone="dark"
+   388→              icon={<Bot className="size-4" />}
+   389→              name="Conversation plane — ElevenLabs Agents"
+   390→              items={["Guardian (voice)", "Helper (chat)", "Console Copilot", "KB + RAG", "Guardrails 2.0"]}
+   391→              note="speech, turn-taking, phrasing, language"
+   392→            />
+   393→            <PlaneConnector label="tool calls · validated, idempotent, session-bound" />
+   394→            <Plane
+   395→              tone="dark"
+   396→              icon={<ServerCog className="size-4" />}
+   397→              name="Control plane — Shield Core (deterministic)"
+   398→              items={["sessions & challenges", "signal fusion", "policy packs", "holds", "verified calls", "audit chain"]}
+   399→              note="pure engine · replayable · property-tested"
+   400→            />
+   401→            <PlaneConnector label="signal fetch · adapters map every error to unknown" />
+   402→            <Plane
+   403→              tone="light"
+   404→              icon={<CircuitBoard className="size-4" />}
+   405→              name="Signal plane"
+   406→              items={["D1 ElevenLabs classifier", "D2 vendor detector", "D3 in-house", "CAMARA SIM swap", "number reputation", "scam-script cues"]}
+   407→            />
+   408→          </div>
+   409→          <div className="mt-8 grid gap-3 sm:grid-cols-3">
+   410→            {[
+   411→              ["Fail toward verification", "Missing, late or contradictory evidence gives Inconclusive (public) or step_up (business). Never Clear."],
+   412→              ["Everything is audited", "Each decision commits with a hash-chained evidence entry in the same transaction."],
+   413→              ["Degrades loudly", "Operating modes show in the console, the API header and the public banner."],
+   414→            ].map(([t, d]) => (
+   415→              <div key={t} className="rounded-xl border border-border bg-card p-4">
+   416→                <p className="text-sm font-bold">{t}</p>
+   417→                <p className="mt-1 text-[13px] leading-snug text-muted-foreground">{d}</p>
+   418→              </div>
+   419→            ))}
+   420→          </div>
+   421→        </div>
+   422→      </div>
+   423→    </section>
+   424→  );
+   425→}
+   426→
+   427→function Plane({
+   428→  name,
+   429→  items,
+   430→  icon,
+   431→  tone,
+   432→  note,
+   433→}: {
+   434→  name: string;
+   435→  items: string[];
+   436→  icon: React.ReactNode;
+   437→  tone: "light" | "dark";
+   438→  note?: string;
+   439→}) {
+   440→  const dark = tone === "dark";
+   441→  return (
+   442→    <div
+   443→      className={`rounded-2xl border p-5 ${
+   444→        dark ? "border-console-line bg-console text-console-ink" : "border-border bg-card"
+   445→      }`}
+   446→    >
+   447→      <div className="flex flex-wrap items-center justify-between gap-2">
+   448→        <p className={`flex items-center gap-2 font-mono text-[11px] font-bold uppercase tracking-[0.16em] ${dark ? "text-console-ink" : "text-foreground"}`}>
+   449→          <span className={dark ? "text-verdict-verified" : "text-primary"}>{icon}</span>
+   450→          {name}
+   451→        </p>
+   452→        {note && (
+   453→          <p className={`font-mono text-[10px] uppercase tracking-wider ${dark ? "text-console-ink/45" : "text-muted-foreground"}`}>{note}</p>
+   454→        )}
+   455→      </div>
+   456→      <div className="mt-3 flex flex-wrap gap-2">
+   457→        {items.map((i) => (
+   458→          <span
+   459→            key={i}
+   460→            className={`rounded-lg border px-2.5 py-1 font-mono text-[11.5px] ${
+   461→              dark ? "border-console-line bg-white/[0.04] text-console-ink/85" : "border-border bg-secondary/70 text-foreground/80"
+   462→            }`}
+   463→          >
+   464→            {i}
+   465→          </span>
+   466→        ))}
+   467→      </div>
+   468→    </div>
+   469→  );
+   470→}
+   471→
+   472→function PlaneConnector({ label }: { label: string }) {
+   473→  return (
+   474→    <div className="flex flex-col items-center py-1.5" aria-hidden>
+   475→      <ArrowDown className="size-4 text-primary/60" />
+   476→      <span className="mt-0.5 max-w-md text-center font-mono text-[10px] uppercase tracking-wider text-muted-foreground">{label}</span>
+   477→    </div>
+   478→  );
+   479→}
+   480→
+   481→/* ------------------------------------------------------------------ */
+   482→/* FAQ — written answer-first for answer engines (AEO)                 */
+   483→/* ------------------------------------------------------------------ */
+   484→
+   485→const FAQS = [
+   486→  {
+   487→    q: "Is this call from my bank real?",
+   488→    a: "Ask Shield. If the bank registered the call, your app shows \u201CYour bank is calling you now\u201D. If nothing shows, hang up and call the number on your card. Spoofed caller ID cannot fake a registry entry.",
+   489→  },
+   490→  {
+   491→    q: "Can a cloned voice pass the check?",
+   492→    a: "It gets harder every step. The voice is scored by at least two independent detectors; a live caller must repeat random words in real time; the number is checked for SIM swaps; and the story is scored for scam pressure. No single test decides, and \u201Cno warning signs found\u201D is never a guarantee.",
+   493→  },
+   494→  {
+   495→    q: "Does Shield keep my audio?",
+   496→    a: "No. Public audio is scored in memory and deleted within 60 seconds. Shield stores an acoustic fingerprint — never a voiceprint of a person — and transcripts are redacted before storage.",
+   497→  },
+   498→  {
+   499→    q: "What does \u201CNo warning signs found\u201D mean?",
+   500→    a: "It means every check Shield could run came back clean. It is deliberately not \u201Cdefinitely real\u201D. The advice stays the same: never share your PIN or any code, and confirm big requests through a second channel.",
+   501→  },
+   502→  {
+   503→    q: "What if my relative really is in trouble?",
+   504→    a: "Shield never accuses. A Caution or Danger tells you how to verify — call them back on a number you saved before — and real banks don\u2019t mind you checking. If a check is wrong, the number\u2019s owner can appeal and gets a decision within 72 hours.",
+   505→  },
+   506→];
+   507→
+   508→export function FaqSection() {
+   509→  return (
+   510→    <section id="faq" className="border-b border-border/70 py-20 sm:py-24">
+   511→      <div className="mx-auto max-w-3xl px-4 sm:px-6">
+   512→        <SectionHead
+   513→          eyebrow="Learn — five ways to spot a cloned voice"
+   514→          title="Questions people actually ask"
+   515→          lede="Plain-language answers, written answer-first in every launch language, reviewed by native speakers."
+   516→        />
+   517→        <Accordion type="single" collapsible className="mt-10">
+   518→          {FAQS.map((f, i) => (
+   519→            <AccordionItem key={f.q} value={`q${i}`} className="border-border">
+   520→              <AccordionTrigger className="text-left text-base font-bold hover:no-underline">{f.q}</AccordionTrigger>
+   521→              <AccordionContent className="text-[15px] leading-relaxed text-muted-foreground">{f.a}</AccordionContent>
+   522→            </AccordionItem>
+   523→          ))}
+   524→        </Accordion>
+   525→      </div>
+   526→    </section>
+   527→  );
+   528→}
+   529→
+   530→/* ------------------------------------------------------------------ */
+   531→/* Footer (sticky via mt-auto on the page wrapper)                     */
+   532→/* ------------------------------------------------------------------ */
+   533→
+   534→export function SiteFooter() {
+   535→  return (
+   536→    <footer className="mt-auto bg-console text-console-ink">
+   537→      <div className="mx-auto grid max-w-7xl gap-10 px-4 py-14 sm:px-6 lg:grid-cols-[1.3fr_1fr_1fr_1.2fr]">
+   538→        <div>
+   539→          <div className="flex items-center gap-2.5">
+   540→            <span className="grid size-9 place-items-center rounded-xl bg-verdict-verified text-white">
+   541→              <ShieldCheck className="size-5" />
+   542→            </span>
+   543→            <p className="text-sm font-bold">SecureVoice Shield</p>
+   544→          </div>
+   545→          <p className="mt-4 max-w-sm text-sm leading-relaxed text-console-ink/65">
+   546→            A sister product to SecureVoice AI — the bank calls the customer to stop fraud; Shield
+   547→            protects everyone when someone else pretends to be either of them.
+   548→          </p>
+   549→          <p className="mt-4 rounded-xl border border-verdict-caution/40 bg-verdict-caution/10 p-3 text-[13px] leading-snug text-verdict-caution">
+   550→            <b>Demo build.</b> Sandbox data only, scripted telco answers, no real calls. Shield
+   551→            never says a voice is definitely real.
+   552→          </p>
+   553→        </div>
+   554→
+   555→        <nav aria-label="Explore">
+   556→          <p className="font-mono text-[10.5px] uppercase tracking-[0.18em] text-console-ink/45">Explore</p>
+   557→          <ul className="mt-3 space-y-2 text-sm">
+   558→            {[
+   559→              ["#demo", "Live sandbox"],
+   560→              ["#signals", "How detection works"],
+   561→              ["#verdicts", "The five verdicts"],
+   562→              ["#products", "Products & API"],
+   563→              ["#audit", "Audit chain"],
+   564→              ["#faq", "Learn"],
+   565→            ].map((ref, label]) => (
+   566→              <li key={href}>
+   567→                <a href={href} className="text-console-ink/75 transition-colors hover:text-verdict-verified">
+   568→                  {label}
+   569→                </a>
+   570→              </li>
+   571→            ))}
+   572→          </ul>
+   573→        </nav>
+   574→
+   575→        <nav aria-label="Markets">
+   576→          <p className="font-mono text-[10.5px] uppercase tracking-[0.18em] text-console-ink/45">Launch markets</p>
+   577→          <ul className="mt-3 space-y-2 text-sm text-console-ink/75">
+   578→            <li>UAE · Arabic, English, Hindi, Urdu</li>
+   579→            <li>Kenya · Kiswahili, English</li>
+   580→            <li>Uganda · Luganda, English, Kiswahili</li>
+   581→            <li>Tanzania · Kiswahili, English</li>
+   582→          </ul>
+   583→          <p className="mt-4 flex items-center gap-1.5 font-mono text-[10.5px] uppercase tracking-wider text-console-ink/45">
+   584→            <Globe2 className="size-3.5" /> data stays in-country
+   585→          </p>
+   586→        </nav>
+   587→
+   588→        <div>
+   589→          <p className="font-mono text-[10.5px] uppercase tracking-[0.18em] text-console-ink/45">Companion docs</p>
+   590→          <p className="mt-3 text-sm leading-relaxed text-console-ink/65">
+   591→            This page implements the Shield spec: 01 Design System (KANGA) · 02 Platform &amp; API
+   592→            Behaviour · 03 Agents &amp; Guardrails · 05 Edge Cases &amp; Operating Modes · 13
+   593→            Compliance &amp; Audit · 14 Discoverability.
+   594→          </p>
+   595→          <p className="mt-4 font-mono text-[10.5px] uppercase tracking-wider text-console-ink/40">
+   596→            Golden rule: Shield never calls you first.
+   597→          </p>
+   598→        </div>
+   599→      </div>
+   600→      <div className="border-t border-console-line">
+   601→        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-2 px-4 py-4 font-mono text-[10.5px] uppercase tracking-[0.16em] text-console-ink/40 sm:px-6">
+   602→          <span>© 2026 SecureVoice · demo environment</span>
+   603→          <span>verdicts are advice, not certainty</span>
+   604→        </div>
+   605→      </div>
+   606→    </footer>
+   607→  );
+   608→}
+   609→

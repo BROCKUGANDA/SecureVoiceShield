@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Check, Loader2, PhoneCall, PhoneOff, BellRing, Users, Bot, Keyboard, LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { VerdictCard, VerdictGlyph, HapticPulses, type VerdictResult } from "../verdict";
@@ -50,6 +50,15 @@ export function GuardianDemo() {
   const [spoken, setSpoken] = useState<number>(-1);
   const [windowPct, setWindowPct] = useState(0);
   const runId = useRef(0);
+  const resultRef = useRef<HTMLDivElement>(null);
+
+  // When the private result lands, bring it into view — the timeline below
+  // the controls is easy to miss otherwise. Skipped for reduced-motion users.
+  useEffect(() => {
+    if (step !== 7) return;
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    resultRef.current?.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "nearest" });
+  }, [step]);
 
   const push = (line: React.ReactNode) => setLines((prev) => [...prev, line]);
 
@@ -301,7 +310,8 @@ export function GuardianDemo() {
       )}
 
       {/* Private result notification */}
-      {result && step >= 7 && (
+      <div ref={resultRef}>
+        {result && step >= 7 && (
         <div className="mt-6 grid gap-4 lg:grid-cols-[1fr_1.1fr]">
           {/* Phone mock */}
           <div className="mx-auto w-full max-w-[300px] rounded-[26px] border border-console-line bg-black/40 p-3">
@@ -320,7 +330,7 @@ export function GuardianDemo() {
                   )}
                 </p>
                 <p className="mt-1 text-[12.5px] leading-snug text-muted-foreground">
-                  {result.reasonCopy[0] ?? VERDICT_META[result.verdict as keyof typeof VERDICT_META].wording}
+                  {result.reasonCopy?.[0] ?? VERDICT_META[result.verdict as keyof typeof VERDICT_META].wording}
                 </p>
                 <div className="mt-2 flex items-center gap-2">
                   <HapticPulses count={result.hapticPulses} className="text-foreground" />
@@ -353,6 +363,7 @@ export function GuardianDemo() {
           />
         </div>
       )}
+      </div>
 
       {phase === "done" && step >= 8 && (
         <p className="mt-5 rounded-xl border border-console-line bg-white/[0.03] p-4 text-sm text-console-ink/80">

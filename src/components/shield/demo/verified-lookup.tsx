@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { BadgeCheck, Loader2, PhoneIncoming, Search, ShieldX } from "lucide-react";
 import { VerdictCard, VerdictGlyph } from "../verdict";
 import { ConsoleButton, ConsoleFrame, SandboxChip } from "./console-ui";
@@ -27,6 +27,13 @@ export function VerifiedLookup() {
   const [phase, setPhase] = useState<Phase>("idle");
   const [ok, setOk] = useState<LookupOk | null>(null);
   const [miss, setMiss] = useState<LookupMiss | null>(null);
+  const resultRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (phase !== "done") return;
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    resultRef.current?.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "nearest" });
+  }, [phase]);
 
   async function run() {
     setPhase("running");
@@ -54,20 +61,30 @@ export function VerifiedLookup() {
         Spoofed caller ID can&rsquo;t fake a registry entry.
       </p>
 
-      <div className="mt-5 flex flex-col gap-3 sm:flex-row">
-        <input
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          inputMode="tel"
-          aria-label="Phone number that called you, in E.164 format"
-          placeholder="Number that called you"
-          className="min-h-11 flex-1 rounded-xl border border-console-line bg-black/30 px-4 font-mono text-sm text-console-ink placeholder:text-console-ink/35 focus:border-verdict-verified/60 focus:outline-none"
-        />
-        <ConsoleButton onClick={run} disabled={phase === "running"}>
-          {phase === "running" ? <Loader2 className="size-4 animate-spin" /> : <Search className="size-4" />}
-          Check the caller
-        </ConsoleButton>
-      </div>
+      <form
+        className="mt-5"
+        onSubmit={(e) => {
+          e.preventDefault();
+          run();
+        }}
+      >
+        <div className="flex flex-col gap-3 sm:flex-row">
+          <input
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            inputMode="tel"
+            autoComplete="off"
+            spellCheck={false}
+            aria-label="Phone number that called you, in E.164 format"
+            placeholder="Number that called you"
+            className="console-input min-h-11 flex-1 rounded-xl border border-console-line bg-black/30 px-4 font-mono text-console-ink placeholder:text-console-ink/35 focus:border-verdict-verified/60 focus:outline-none"
+          />
+          <ConsoleButton type="submit" disabled={phase === "running"}>
+            {phase === "running" ? <Loader2 className="size-4 animate-spin" /> : <Search className="size-4" />}
+            Check the caller
+          </ConsoleButton>
+        </div>
+      </form>
 
       <div className="mt-4 flex flex-wrap items-center gap-2">
         <SandboxChip
@@ -82,7 +99,7 @@ export function VerifiedLookup() {
         <SandboxChip
           label="any number ending 0006 registers as a call in progress"
           onClick={() => {
-            setValue("+254700111006");
+            setValue("+254700000006");
             setPhase("idle");
             setOk(null);
             setMiss(null);
@@ -90,7 +107,8 @@ export function VerifiedLookup() {
         />
       </div>
 
-      {ok && (
+      <div ref={resultRef}>
+        {ok && (
         <div className="animate-line-in mt-5 rounded-2xl border border-verdict-verified/40 bg-verdict-verified/10 p-5">
           <div className="flex items-start gap-4">
             <VerdictGlyph verdict="verified" size={52} />
@@ -127,6 +145,7 @@ export function VerifiedLookup() {
           </div>
         </div>
       )}
+      </div>
     </ConsoleFrame>
   );
 }

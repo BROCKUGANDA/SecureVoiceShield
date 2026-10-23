@@ -10,27 +10,55 @@ interface ModeResponse {
 /**
  * Live operating-mode pill (05, section 2): reads GET /api/system/mode.
  * Modes degrade loudly — the console, the header and the API header all show it.
+ *
+ * Polling hygiene: 30 s cadence, paused while the tab is hidden, exponential
+ * backoff (up to 2 min) when the probe itself fails, and an immediate refresh
+ * when the user returns to the tab.
  */
 export function ModePill({ compact = false }: { compact?: boolean }) {
   const [data, setData] = useState<ModeResponse | null>(null);
 
   useEffect(() => {
     let alive = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let failures = 0;
+
+    const schedule = (ms: number) => {
+      timer = setTimeout(load, ms);
+    };
+
     const load = async () => {
+      // Don't burn requests for an invisible tab — re-probe soon after return.
+      if (typeof document !== "undefined" && document.hidden) {
+        schedule(15_000);
+        return;
+      }
       try {
         const res = await fetch("/api/system/mode", { cache: "no-store" });
-        if (!res.ok) return;
+        if (!res.ok) throw new Error(String(res.status));
         const json = (await res.json()) as ModeResponse;
+        failures = 0;
         if (alive) setData(json);
+        schedule(30_000);
       } catch {
-        // Keep last known mode; never fabricate one.
+        failures += 1;
+        schedule(Math.min(120_000, 10_000 * failures));
       }
     };
+
+    const onVisibility = () => {
+      if (!document.hidden) {
+        if (timer) clearTimeout(timer);
+        load();
+      }
+    };
+
     load();
-    const t = setInterval(load, 20_000);
+    document.addEventListener("visibilitychange", onVisibility);
     return () => {
       alive = false;
-      clearInterval(t);
+      if (timer) clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisibility);
     };
   }, []);
 

@@ -371,11 +371,13 @@ export function pickChallengeWords(lang: GuardianLang, seed: string): string[] {
   const numbers: Record<GuardianLang, string> = { en: "seven", sw: "saba", lg: "musanvu" };
   const number = numbers[lang];
   // Challenge words never repeat and never collide with the number word.
+  // NOTE: `>>>` (unsigned) is mandatory — `>>` would go negative whenever bit
+  // 31 is set, and a negative index silently becomes `undefined`.
   const candidates = pool.filter((w) => w !== number);
   const words: string[] = [];
-  for (let k = 0; words.length < 2 && k < candidates.length * 2; k++) {
-    const w = candidates[(h >> (k * 3)) % candidates.length];
-    if (!words.includes(w)) words.push(w);
+  for (let k = 0; words.length < 3 && k < candidates.length * 4; k++) {
+    const w = candidates[(h >>> (k * 3)) % candidates.length];
+    if (w && !words.includes(w)) words.push(w);
   }
   return [...words, number];
 }

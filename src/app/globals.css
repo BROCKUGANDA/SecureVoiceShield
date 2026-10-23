@@ -152,6 +152,25 @@
   }
   html {
     scroll-behavior: smooth;
+    /* Anchored sections clear the sticky header (h-16) plus breathing room. */
+    scroll-padding-top: 5.5rem;
+  }
+
+  /* One consistent, visible keyboard focus everywhere — light and dark. */
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  ::selection {
+    background: color-mix(in srgb, var(--verdict-verified) 22%, transparent);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
   }
 }
 
@@ -173,6 +192,10 @@
 }
 .animate-marquee {
   animation: sv-marquee 36s linear infinite;
+}
+/* Pause the golden rule while a user reads it. */
+.animate-marquee:hover {
+  animation-play-state: paused;
 }
 
 @keyframes sv-radar {
@@ -254,6 +277,21 @@
   animation: sv-line-in 0.28s ease-out both;
 }
 
+/* Kill every decorative animation for users who ask for calm (14, a11y). */
+@media (prefers-reduced-motion: reduce) {
+  .animate-marquee,
+  .animate-radar,
+  .animate-radar-delay-1,
+  .animate-radar-delay-2,
+  .animate-float,
+  .animate-float-slow,
+  .haptic-dot,
+  .animate-blink,
+  .animate-line-in {
+    animation: none !important;
+  }
+}
+
 /* Custom scrollbar for long lists (KANGA spec) */
 .nice-scroll {
   scrollbar-width: thin;
@@ -269,6 +307,21 @@
 }
 .nice-scroll::-webkit-scrollbar-track {
   background: transparent;
+}
+
+/* Footer respect for iOS home-indicator safe area. */
+.safe-bottom {
+  padding-bottom: max(env(safe-area-inset-bottom), 0px);
+}
+
+/* Console inputs: 16px on mobile so iOS Safari never zooms on focus. */
+.console-input {
+  font-size: 16px;
+}
+@media (min-width: 640px) {
+  .console-input {
+    font-size: 0.875rem;
+  }
 }
 
 /* Subtle blueprint grid for hero backdrop */
