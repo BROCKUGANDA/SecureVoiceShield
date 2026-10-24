@@ -88,7 +88,7 @@ export function VerifiedLookup() {
 
       <div className="mt-4 flex flex-wrap items-center gap-2">
         <SandboxChip
-          label="try a registered bank line · +971 4 201 6000"
+          label="try a registered bank line · +971 4 XXX XXXX"
           onClick={() => {
             setValue("+971420160000");
             setPhase("idle");

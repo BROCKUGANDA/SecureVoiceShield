@@ -20,7 +20,7 @@ interface AuditEntry {
 interface AuditResponse {
   cell: string;
   total: number;
-  integrity: { ok: boolean; checked: number; brokenAt?: number };
+  integrity: { ok: boolean; checked: number; signed?: number; brokenAt?: number };
   entries: AuditEntry[];
 }
 
@@ -69,7 +69,9 @@ export function AuditPanel() {
               json.integrity.ok
                 ? {
                     title: "Chain verified",
-                    description: `${json.integrity.checked} entries recomputed from genesis — every hash matches.`,
+                    description: `${json.integrity.checked} entries recomputed from genesis — every hash matches${
+                      json.integrity.signed !== undefined ? `, ${json.integrity.signed} signed` : ""
+                    }.`,
                   }
                 : {
                     title: "Chain integrity FAILED",
@@ -116,7 +118,7 @@ export function AuditPanel() {
           <div>
             <p className="text-sm font-bold text-console-ink">Evidence log — hash chain · cell {data?.cell ?? "ug"}</p>
             <p className="font-mono text-[10.5px] uppercase tracking-wider text-console-ink/45">
-              entryHash = sha256(seq ∥ at ∥ action ∥ resource ∥ reasons ∥ actor ∥ policy ∥ inputDigest ∥ cell ∥ prevHash)
+              entryHash = sha256(seq ∥ at ∥ action ∥ resource ∥ reasons ∥ actor ∥ policy ∥ inputDigest ∥ models ∥ trace ∥ cell ∥ prevHash)
             </p>
           </div>
         </div>
@@ -193,7 +195,13 @@ export function AuditPanel() {
                   </div>
                   <div className="text-right">
                     <p className="font-mono text-[10.5px] tabular-nums text-console-ink/40">
-                      {new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date(e.at))} UTC
+                      {new Intl.DateTimeFormat("en-GB", {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                        second: "2-digit",
+                        timeZone: "UTC",
+                      }).format(new Date(e.at))}{" "}
+                      UTC
                     </p>
                     <p className="font-mono text-[10.5px] text-verdict-verified/90">{e.entryHash.slice(7, 23)}…</p>
                   </div>
@@ -211,8 +219,8 @@ export function AuditPanel() {
       <div className="border-t border-console-line px-5 py-4 sm:px-6">
         <p className="flex items-start gap-2 text-[13px] leading-relaxed text-console-ink/60">
           <ShieldCheck className="mt-0.5 size-4 shrink-0 text-verdict-verified" />
-          Every decision on this page committed an entry in the same transaction. Auditors, banks
-          and regulators verify the chain independently with the open-source{" "}
+          Every decision on this page committed an entry in the same transaction, and every entry is
+          signed. Auditors, banks and regulators verify the chain independently with the open-source{" "}
           <code className="rounded bg-white/5 px-1.5 py-0.5 font-mono text-[11.5px] text-verdict-verified">shield-verify</code>{" "}
           tool — no trust in Shield&rsquo;s servers required.
         </p>

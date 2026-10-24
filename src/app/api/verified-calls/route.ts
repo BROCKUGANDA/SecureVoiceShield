@@ -8,6 +8,12 @@ import { maskMsisdn } from "@/lib/shield-engine";
 
 export const dynamic = "force-dynamic";
 
+/**
+ * The sandbox magic registration exists only in the sandbox (10, section 4.3).
+ * Production never recognises it.
+ */
+const SANDBOX = process.env.SHIELD_SANDBOX !== "false";
+
 const FAIL_SAFE_ADVICE =
   "The registry could not be reached, so this call can’t be confirmed. Hang up and call your bank on the number on your card.";
 
@@ -35,9 +41,17 @@ export async function GET(req: Request) {
     await ensureSeed();
 
     const registered = await db.verifiedCall.findUnique({ where: { e164Hash: hmacNumber(e164) } });
-    const magic = e164.replace(/\D/g, "").endsWith("0006")
-      ? { id: "magic", bankName: "Partner bank (demo registry)", market: "UG", minutesValid: 15, createdAt: new Date() }
-      : null;
+    // The sandbox magic registration exists only in the sandbox (10, 4.3).
+    const magic =
+      SANDBOX && e164.replace(/\D/g, "").endsWith("0006")
+        ? {
+            id: "magic",
+            bankName: "Partner bank (demo registry)",
+            market: "UG",
+            minutesValid: 15,
+            createdAt: new Date(),
+          }
+        : null;
     const candidate = registered ?? magic;
 
     // A registration is only a confirmation while it is still inside its

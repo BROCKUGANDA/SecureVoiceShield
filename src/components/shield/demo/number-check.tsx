@@ -7,6 +7,7 @@ import { useToast } from "@/hooks/use-toast";
 import { VerdictCard, type VerdictResult } from "../verdict";
 import { CopyButton } from "../copy-button";
 import { ConsoleButton, ConsoleFrame, LogLine, ProblemCard, RunLog, SandboxChip } from "./console-ui";
+import { RULE_PACK_VERSION } from "@/lib/shield-engine";
 
 const MAGIC: { last4: string; label: string }[] = [
   { last4: "0001", label: "0001 · SIM swapped 2h ago" },
@@ -17,6 +18,7 @@ const MAGIC: { last4: string; label: string }[] = [
   { last4: "0006", label: "0006 · verified bank call" },
   { last4: "0007", label: "0007 · slow 950 ms" },
   { last4: "0008", label: "0008 · degraded mode" },
+  { last4: "0009", label: "0009 · event delivered twice" },
 ];
 
 type Phase = "idle" | "running" | "done" | "error";
@@ -30,10 +32,25 @@ interface AssessResponse extends VerdictResult {
 
 const E164 = /^\+[1-9]\d{7,14}$/;
 
+/**
+ * The client's own budget for a number check. The server's hard timeout is
+ * 900 ms; the client waits a little longer, and treats its own timeout as
+ * step_up (09, RT-1).
+ */
+const CLIENT_TIMEOUT_MS = 2500;
+
+/** Numbers never reach a log in the clear (12, section 12). */
+function maskForLog(e164: string): string {
+  const digits = e164.replace(/\D/g, "");
+  return `••• ••• ${digits.slice(-3)}`;
+}
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export function NumberCheck() {
-  const [value, setValue] = useState("+256770012345");
+  // No number is pre-filled: a raw digit run on the page could belong to a
+  // real person, so examples stay masked (14, section 1).
+  const [value, setValue] = useState("");
   const [activeMagic, setActiveMagic] = useState<string | null>(null);
   const [phase, setPhase] = useState<Phase>("idle");
   const [lines, setLines] = useState<React.ReactNode[]>([]);
@@ -64,11 +81,32 @@ export function NumberCheck() {
     setProblem(null);
     setReportState(null);
 
+    // The client has its own budget. On its own timeout it treats the result
+    // as step_up — never as Clear (09, RT-1).
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), CLIENT_TIMEOUT_MS);
+
     const fetchPromise = fetch("/api/assess", {
       method: "POST",
       headers: { "Content-Type": "application/json", "Idempotency-Key": "ui-" + Date.now() },
       body: JSON.stringify({ number: numberRaw }),
-    }).then(async (res) => ({ ok: res.ok, status: res.status, body: await res.json() }));
+      signal: controller.signal,
+    })
+      .then(async (res) => ({ ok: res.ok, status: res.status, body: await res.json() }))
+      .catch((error) => ({
+        ok: false,
+        status: 0,
+        body: {
+          title: error?.name === "AbortError" ? "The check timed out" : "The check could not reach Shield",
+          code: error?.name === "AbortError" ? "SH-TIMEOUT-504" : "SH-NETWORK-000",
+          detail:
+            error?.name === "AbortError"
+              ? "Shield did not answer in time, so the result is treated as step_up. Call back on a number you already know."
+              : "No answer from Shield. Treat the number as unverified — call back on a number you already know.",
+          safeAction: "step_up",
+        },
+      }))
+      .finally(() => clearTimeout(timer));
 
     // Signal-plane steps reveal while the request is in flight (RT-1: 250 ms budget).
     const steps: Promise<void>[] = [];
@@ -76,16 +114,16 @@ export function NumberCheck() {
       await sleep(ms);
       fn();
     };
-    steps.push(step(() => push(<LogLine id="NUM">normalising to E.164 · {numberRaw}</LogLine>), 180));
+    steps.push(step(() => push(<LogLine id="NUM">normalising to E.164 · {maskForLog(numberRaw)}</LogLine>), 180));
     steps.push(step(() => push(<LogLine id="TEL">telco adapter · SIM swap, call forwarding (CAMARA)</LogLine>), 420));
     steps.push(step(() => push(<LogLine id="REP">number reputation · shared report pool</LogLine>), 660));
-    steps.push(step(() => push(<LogLine id="ENG" state="wait">engine fusing signals · policy ug-public-2026.10.1</LogLine>), 900));
+    steps.push(step(() => push(<LogLine id="ENG" state="wait">engine fusing signals · policy {RULE_PACK_VERSION}</LogLine>), 900));
     const linesDone = Promise.all(steps);
 
     const [res] = await Promise.all([fetchPromise, linesDone]);
 
     if (!res.ok) {
-      const b = res.body as { title?: string; code?: string; detail?: string };
+      const b = res.body as { title?: string; code?: string; detail?: string; safeAction?: string };
       push(<LogLine id="ERR" state="flag">{b.code ?? res.status} — degraded, never reassuring (F-1)</LogLine>);
       setProblem({ title: b.title ?? "Request failed", code: b.code ?? String(res.status), detail: b.detail });
       setPhase("error");
@@ -106,7 +144,7 @@ export function NumberCheck() {
     if (!E164.test(clean)) {
       toast({
         title: "Check the number",
-        description: "Use international format starting with +, e.g. +256 772 123456.",
+        description: "Use international format starting with +, e.g. +256 7XX XXX X12.",
       });
       return;
     }
@@ -172,7 +210,7 @@ export function NumberCheck() {
               aria-label="Phone number in E.164 format"
               aria-invalid={invalid}
               aria-describedby={invalid ? "number-format-hint" : undefined}
-              placeholder="+256 7X XXX XXXX"
+              placeholder="+256 7XX XXX X12"
               className="console-input min-h-11 w-full rounded-xl border border-console-line bg-black/30 px-4 font-mono text-console-ink placeholder:text-console-ink/35 focus:border-verdict-verified/60 focus:outline-none aria-[invalid=true]:border-verdict-caution/70"
             />
             {invalid && (

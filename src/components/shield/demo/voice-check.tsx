@@ -11,7 +11,7 @@ interface VoiceResponse extends VerdictResult {
   checkId: string;
   detectors: { d1ElevenLabs: string; d2Vendor: string; d3InHouse: string };
   durationSec: number;
-  audioDeletedAfterSec: number;
+  audio: { received: boolean; retainedSeconds: number; note: string };
 }
 
 interface Sample {
@@ -84,7 +84,7 @@ export function VoiceCheck() {
         verdict <b>{data.verdict}</b> · D1 {d.d1ElevenLabs} · D2 {d.d2Vendor} · D3 {d.d3InHouse}
       </LogLine>,
     );
-    push(<LogLine id="PRV" state="dim">audio crypto-shredded · deleted {data.audioDeletedAfterSec}s after scoring</LogLine>);
+    push(<LogLine id="PRV" state="dim">no audio reached the server · the sandbox scores metadata only</LogLine>);
     setResult(data);
     setPhase("done");
   }
@@ -189,7 +189,7 @@ export function VoiceCheck() {
               <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1.5 border-t border-border/70 pt-3 text-sm text-muted-foreground">
                 <span className="flex items-center gap-1.5">
                   <Trash2 className="size-3.5 text-verdict-verified" />
-                  Audio deleted {result.audioDeletedAfterSec}s after scoring
+                  No audio left your device — the demo scores metadata only
                 </span>
                 <span className="flex items-center gap-1.5">
                   <Lock className="size-3.5" />

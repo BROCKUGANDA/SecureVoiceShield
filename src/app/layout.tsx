@@ -3,6 +3,8 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
 import { ThemeProvider } from "@/components/shield/theme-provider";
+import { OrganizationJsonLd, WebSiteJsonLd } from "@/components/shield/structured-data";
+import { LOCALES, SITE_NAME, SITE_URL } from "@/lib/site";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -14,16 +16,31 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "https://shield.securevoice.example";
+/** The self-referencing canonical for this route — absolute, from SITE_URL (14, section 5). */
+const CANONICAL_URL = SITE_URL;
+
+/** The home page is English in the Uganda launch market (14, section 2). */
+const OG_LOCALE = "en_UG";
+
+/** The other markets' languages, as og:locale:alternate (14, section 5). */
+const OG_LOCALE_ALTERNATE = LOCALES.map((locale) => locale.replace("-", "_")).filter(
+  (locale) => locale !== OG_LOCALE,
+);
+
+/** 60 characters or fewer, question-led (14, sections 5 and 7.1). */
+const TITLE = "SecureVoice Shield — is this call real?";
+
+/** 155 characters or fewer, answer-first (14, section 5). */
+const DESCRIPTION =
+  "Is this call real? Check it with Shield — cloned voices, spoofed IDs and SIM swaps, answered in plain language. Shield never calls you first.";
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: {
-    default: "SecureVoice Shield — Is this voice real?",
+    default: TITLE,
     template: "%s · SecureVoice Shield",
   },
-  description:
-    "Shield protects customers and banks from cloned voices, spoofed numbers and SIM swaps. Check a call, a number or a voice note and get a plain-language verdict — never a guarantee.",
+  description: DESCRIPTION,
   keywords: [
     "SecureVoice Shield",
     "voice cloning",
@@ -36,23 +53,39 @@ export const metadata: Metadata = {
     "Tanzania",
   ],
   authors: [{ name: "SecureVoice" }],
-  applicationName: "SecureVoice Shield",
+  applicationName: SITE_NAME,
+  alternates: {
+    // One honest entry: the self-referencing canonical.
+    //
+    // The eleven-locale hreflang set (14, section 2) is deliberately
+    // withheld until the locale routes exist. Publishing hreflang links to
+    // pages that are not there would tell crawlers to index nothing, so
+    // the set ships with the commit that adds /en-ae/, /ar-ae/ and the
+    // rest — not before.
+    canonical: "/",
+  },
   openGraph: {
-    title: "SecureVoice Shield — Is this voice real?",
-    description:
-      "Scammers clone voices, spoof numbers and swap SIMs. Shield scores every suspicious call, voice note and OTP request — and answers in plain language.",
+    title: TITLE,
+    description: DESCRIPTION,
     type: "website",
-    siteName: "SecureVoice Shield",
-    url: SITE_URL,
-    locale: "en",
+    siteName: SITE_NAME,
+    url: CANONICAL_URL,
+    locale: OG_LOCALE,
+    alternateLocale: OG_LOCALE_ALTERNATE,
   },
   twitter: {
     card: "summary_large_image",
-    title: "SecureVoice Shield — Is this voice real?",
-    description:
-      "Scammers clone voices, spoof numbers and swap SIMs. Shield answers in plain language — and never calls you first.",
+    title: TITLE,
+    description: DESCRIPTION,
+  },
+  // Next has no typed twitter:url, so the canonical is emitted explicitly.
+  other: {
+    "twitter:url": CANONICAL_URL,
   },
   robots: { index: true, follow: true },
+  // The web app manifest (14, section 10.1).
+  manifest: "/manifest.webmanifest",
+  // Masked examples must never become tappable numbers (14, section 5).
   formatDetection: { telephone: false },
 };
 
@@ -76,6 +109,8 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground`}
       >
+        <OrganizationJsonLd />
+        <WebSiteJsonLd />
         <ThemeProvider>
           {children}
           <Toaster />

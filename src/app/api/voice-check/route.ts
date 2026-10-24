@@ -1,27 +1,27 @@
 import { randomUUID } from "crypto";
-import { z } from "zod";
 import { db } from "@/lib/db";
 import { appendAuditWith } from "@/lib/audit";
 import { degraded, ok, problem, readJson } from "@/lib/api";
+import { VoiceCheckBody } from "@/lib/schemas";
 import { rateLimit } from "@/lib/rate-limit";
-import { assessVoice, REASON_COPY } from "@/lib/shield-engine";
+import { assessVoice, MODEL_VERSIONS, REASON_COPY, RULE_PACK_VERSION } from "@/lib/shield-engine";
 
 export const dynamic = "force-dynamic";
 
-const Body = z.object({
-  fileName: z.string().min(1).max(200),
-  sizeKb: z.number().int().min(0).max(100_000),
-  durationSec: z.number().min(0).max(600),
-  preset: z.enum(["family-emergency.m4a", "mum-real-voice.ogg", "forwarded-3x.opus"]).optional(),
-});
+const Body = VoiceCheckBody;
+
+/** A telco "no swap" signal is never served past its TTL (09, section 1). */
+const DECISION_TTL_MS = 15 * 60 * 1000;
 
 /**
  * POST /api/voice-check — public voice-note check.
- * The engine, not a model, decides. Audio itself never leaves the client in
- * this demo; production deletes it within 60 s of scoring (SP-1).
+ * The engine, not a model, decides. In this sandbox the audio never leaves
+ * the device: the request carries metadata only, so there is nothing to
+ * retain. Production deletes raw audio within 60 s of scoring (SP-1).
  */
 export async function POST(req: Request) {
   const started = Date.now();
+  const traceId = randomUUID();
 
   const limit = rateLimit(req, "voice-check", 20);
   if (!limit.ok) {
@@ -58,8 +58,9 @@ export async function POST(req: Request) {
 
     const uploadId = "upl_" + randomUUID().replace(/-/g, "").slice(0, 16);
     const latencyMs = Date.now() - started;
+    const expiresAt = new Date(Date.now() + DECISION_TTL_MS);
 
-    // The evidence entry and the decision commit together (I-3).
+    // The evidence entry, its event and the decision commit together (I-3, A-4).
     const { audit } = await appendAuditWith(
       {
         action: "decision.created",
@@ -70,6 +71,8 @@ export async function POST(req: Request) {
           sizeKb: parsed.data.sizeKb,
           durationSec: parsed.data.durationSec,
         },
+        modelVersions: MODEL_VERSIONS,
+        traceId,
       },
       async (tx, entry) =>
         tx.decision.create({
@@ -83,8 +86,23 @@ export async function POST(req: Request) {
             signals: JSON.stringify({ detectors: outcome.detectors, durationSec: outcome.durationSec }),
             latencyMs,
             auditSeq: entry.seq,
+            policyVersion: RULE_PACK_VERSION,
+            expiresAt,
           },
         }),
+      (created, entry) => [
+        {
+          type: "me.securevoiceai.shield.decision.created.v1",
+          subject: created.id,
+          lane: "standard",
+          data: {
+            kind: "voice_check",
+            verdict: created.verdict,
+            reasons: outcome.reasons,
+            auditSeq: entry.seq,
+          },
+        },
+      ],
     );
 
     return ok({
@@ -96,8 +114,17 @@ export async function POST(req: Request) {
       detectors: outcome.detectors,
       durationSec: outcome.durationSec,
       latencyMs,
-      audioDeletedAfterSec: 60,
-      audit: { seq: audit.seq, entryHash: audit.entryHash },
+      expiresAt: expiresAt.toISOString(),
+      policyVersion: RULE_PACK_VERSION,
+      traceId,
+      // No audio was uploaded, so none is retained: the sandbox scores the
+      // metadata a real detector would score (12, section 9.2).
+      audio: {
+        received: false,
+        retainedSeconds: 0,
+        note: "The sandbox never receives audio — it scores metadata only. Production deletes raw audio within 60 s of scoring.",
+      },
+      audit: { seq: audit.seq, entryHash: audit.entryHash, sig: audit.sig },
     });
   } catch {
     // Detector or evidence failure: Inconclusive territory, never Clear (F-1).

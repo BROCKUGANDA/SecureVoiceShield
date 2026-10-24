@@ -9,6 +9,20 @@
 
 export type Verdict = "clear" | "caution" | "danger" | "inconclusive" | "verified";
 
+/**
+ * Versions of the models and rule packs behind a decision (13, section 6.2).
+ * They are written into the evidence chain, so a decision can be replayed
+ * against the exact versions that produced it.
+ */
+export const RULE_PACK_VERSION = "ug-public-2026.10.2";
+
+export const MODEL_VERSIONS: Record<string, string> = {
+  rulePack: RULE_PACK_VERSION,
+  d1ElevenLabs: "2026.09.1",
+  d2Vendor: "2026.09.1",
+  d3InHouse: "2026.10.2",
+};
+
 export type RecommendedAction = "allow" | "step_up" | "hold" | "review";
 
 export type ReasonCode =
@@ -22,14 +36,14 @@ export type ReasonCode =
   | "CALL_FORWARDING_ON"
   | "NUMBER_REPORTED"
   | "TELCO_UNKNOWN"
+  | "SIGNAL_UNAVAILABLE"
   | "URGENCY_CUES"
   | "OTP_REQUEST"
   | "PAYMENT_REDIRECT"
   | "NEW_NUMBER_STORY"
   | "TOO_NOISY";
 
-/** Public copy is plain language only — no scores, no jargon (I-6). */
-export const REASON_COPY: Record<ReasonCode, string> = {
+/** Public copy is plain language only — no scores, no jargon (I-6). */export const REASON_COPY: Record<ReasonCode, string> = {
   NO_ISSUES_FOUND: "No warning signs found",
   REGISTERED_BANK_CALL: "Registered by the bank before the call",
   VOICE_SYNTHETIC_LIKELY: "The voice sounds computer-made",
@@ -40,6 +54,7 @@ export const REASON_COPY: Record<ReasonCode, string> = {
   CALL_FORWARDING_ON: "Calls from this number are being forwarded",
   NUMBER_REPORTED: "This number has been reported for scams",
   TELCO_UNKNOWN: "We could not check the SIM card right now",
+  SIGNAL_UNAVAILABLE: "The check took too long — we could not finish it safely",
   URGENCY_CUES: "The caller pushes urgency and secrecy",
   OTP_REQUEST: "The caller asks for a one-time code",
   PAYMENT_REDIRECT: "Asks for payment by gift card, crypto or mobile money",
@@ -115,6 +130,11 @@ export interface NumberSignals {
   reputation: { known: boolean; reports: number; band: "clean" | "elevated" | "high" | "unknown" };
   verifiedCall: { bank: string; minutesAgo: number } | null;
   syntheticVoice?: boolean;
+  /**
+   * The lookup was refused because the cell is degraded — it was never
+   * attempted, so it must not count as a failed telco call (09, section 4.7).
+   */
+  degraded?: boolean;
 }
 
 export interface AssessOutcome {

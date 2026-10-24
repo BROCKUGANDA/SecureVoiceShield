@@ -1,11 +1,14 @@
-import { z } from "zod";
+import { randomUUID } from "crypto";
 import { db } from "@/lib/db";
 import { appendAuditWith } from "@/lib/audit";
 import { degraded, ok, problem, readJson } from "@/lib/api";
+import { GuardianCompleteBody } from "@/lib/schemas";
 import { rateLimit } from "@/lib/rate-limit";
 import {
   assessGuardian,
+  MODEL_VERSIONS,
   REASON_COPY,
+  RULE_PACK_VERSION,
   VERDICT_META,
   verdictWord,
   type GuardianLang,
@@ -15,10 +18,10 @@ import {
 
 export const dynamic = "force-dynamic";
 
-const Body = z.object({
-  sessionId: z.string().min(3).max(64),
-  language: z.enum(["en", "sw", "lg"]).optional(),
-});
+const Body = GuardianCompleteBody;
+
+/** A decision is never reused after it expires (10, section 2). */
+const DECISION_TTL_MS = 15 * 60 * 1000;
 
 /**
  * POST /api/guardian/complete — the engine scores the answer window and
@@ -28,6 +31,8 @@ const Body = z.object({
  * media fork decides the outcome of a live call.
  */
 export async function POST(req: Request) {
+  const traceId = randomUUID();
+
   const limit = rateLimit(req, "guardian-complete", 20);
   if (!limit.ok) {
     return problem(429, "Too many requests", "SH-RATE-429", undefined, undefined, {
@@ -70,7 +75,10 @@ export async function POST(req: Request) {
       const reasons = JSON.parse(existing.reasons) as string[];
       const entry = await db.auditEntry.findUnique({ where: { seq: existing.auditSeq } });
       const signals = JSON.parse(existing.signals) as { scenario?: string; language?: string };
-      const replayOutcome = assessGuardian((signals.scenario ?? "real_relative") as GuardianScenario);
+      // A damaged or missing scenario must never replay as a reassurance.
+      const replayOutcome = isGuardianScenario(signals.scenario)
+        ? assessGuardian(signals.scenario)
+        : { verdict: "inconclusive" as const, reasons: ["SIGNAL_UNAVAILABLE" as const], via: ["push" as const], latencyMs: 0 };
       return ok({
         sessionId,
         verdict: existing.verdict,
@@ -80,7 +88,7 @@ export async function POST(req: Request) {
         deliveredVia: replayOutcome.via,
         hapticPulses: VERDICT_META[existing.verdict as keyof typeof VERDICT_META]?.hapticPulses ?? 0,
         inCallLatencyMs: existing.latencyMs,
-        audit: { seq: existing.auditSeq, entryHash: entry?.entryHash },
+        audit: { seq: existing.auditSeq, entryHash: entry?.entryHash, sig: entry?.sig },
         replayed: true,
       });
     }
@@ -95,6 +103,8 @@ export async function POST(req: Request) {
         resource: sessionId,
         reasonCodes: outcome.reasons,
         input: { sessionId, scenario: session.scenario, language: session.language },
+        modelVersions: MODEL_VERSIONS,
+        traceId,
       },
       async (tx, entry) => {
         const created = await tx.decision.create({
@@ -105,9 +115,15 @@ export async function POST(req: Request) {
             verdict: outcome.verdict,
             reasons: JSON.stringify(outcome.reasons),
             action: outcome.verdict === "danger" ? "hold" : outcome.verdict === "clear" ? "allow" : "step_up",
-            signals: JSON.stringify({ scenario: session.scenario, language: session.language }),
+            signals: JSON.stringify({
+              scenario: session.scenario,
+              scenarioSource: session.scenarioSource,
+              language: session.language,
+            }),
             latencyMs: outcome.latencyMs,
             auditSeq: entry.seq,
+            policyVersion: RULE_PACK_VERSION,
+            expiresAt: new Date(Date.now() + DECISION_TTL_MS),
           },
         });
         await tx.guardianSession.update({
@@ -116,6 +132,15 @@ export async function POST(req: Request) {
         });
         return created;
       },
+      (created, entry) => [
+        {
+          type: "me.securevoiceai.shield.guardian.completed.v1",
+          subject: created.id,
+          lane: "standard",
+          // Outcome only — no audio, no transcript (09, section 4.4).
+          data: { sessionId, verdict: created.verdict, auditSeq: entry.seq },
+        },
+      ],
     );
 
     return ok({
@@ -127,7 +152,10 @@ export async function POST(req: Request) {
       deliveredVia: outcome.via,
       hapticPulses: VERDICT_META[outcome.verdict].hapticPulses,
       inCallLatencyMs: outcome.latencyMs,
-      audit: { seq: audit.seq, entryHash: audit.entryHash },
+      scenarioSource: session.scenarioSource,
+      policyVersion: RULE_PACK_VERSION,
+      traceId,
+      audit: { seq: audit.seq, entryHash: audit.entryHash, sig: audit.sig },
       replayed: false,
     });
   } catch {
@@ -140,4 +168,13 @@ export async function POST(req: Request) {
 
 function langOf(language: string): GuardianLang {
   return language === "sw" || language === "lg" ? language : "en";
+}
+
+function isGuardianScenario(value: string | undefined): value is GuardianScenario {
+  return (
+    value === "real_relative" ||
+    value === "realtime_clone" ||
+    value === "tts_operator" ||
+    value === "caller_left"
+  );
 }

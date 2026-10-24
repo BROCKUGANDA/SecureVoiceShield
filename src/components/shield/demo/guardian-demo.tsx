@@ -356,8 +356,8 @@ export function GuardianDemo() {
             footer={
               <p className="mt-3 flex items-start gap-2 border-t border-border/70 pt-3 text-sm text-muted-foreground">
                 <BellRing className="mt-0.5 size-4 shrink-0 text-primary" />
-                Deadline check: committed {result.inCallLatencyMs} ms after the caller stopped
-                speaking — inside the 1.5 s RT-0 budget.
+                Deadline check: the sandbox&rsquo;s scripted in-call latency is{" "}
+                {result.inCallLatencyMs} ms — the RT-0 budget is 1.5 s.
               </p>
             }
           />

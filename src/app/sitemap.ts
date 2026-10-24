@@ -1,12 +1,15 @@
 import type { MetadataRoute } from "next";
+import { CONTENT_UPDATED_AT, SITE_URL } from "@/lib/site";
 
-const BASE = process.env.NEXT_PUBLIC_SITE_URL ?? "https://shield.securevoice.example";
-
+/**
+ * The sitemap (14, section 10.7). `lastmod` changes only when the content
+ * changes, so it is a reviewed constant rather than the build time.
+ */
 export default function sitemap(): MetadataRoute.Sitemap {
   return [
     {
-      url: `${BASE}/`,
-      lastModified: new Date(),
+      url: `${SITE_URL}/`,
+      lastModified: new Date(CONTENT_UPDATED_AT),
       changeFrequency: "weekly",
       priority: 1,
     },

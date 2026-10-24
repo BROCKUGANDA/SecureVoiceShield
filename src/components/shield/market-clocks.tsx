@@ -10,16 +10,31 @@ const ZONES: { code: string; city: string; tz: string }[] = [
 ];
 
 /**
- * Live clocks per market (rule T-3): store UTC, display in the viewer's zone.
- * Rendered after mount so server and client markup match.
+ * Live clocks per market (rules T-3 and T-7): store UTC, display in the
+ * viewer's zone, and take the time from the server — a device clock is only
+ * a hint, so the client's clock is corrected against the server's.
  */
 export function MarketClocks() {
   const [now, setNow] = useState<Date | null>(null);
 
   useEffect(() => {
     let alive = true;
+    let offset = 0;
+
+    // Ask the server what time it is and correct the device clock against it.
+    fetch("/api/health", { cache: "no-store" })
+      .then((res) => res.json())
+      .then((body: { timestamp?: string }) => {
+        if (!alive || !body.timestamp) return;
+        const serverAt = Date.parse(body.timestamp);
+        if (Number.isFinite(serverAt)) offset = serverAt - Date.now();
+      })
+      .catch(() => {
+        // Without the server's time the device clock is the best we have.
+      });
+
     const tick = () => {
-      if (alive) setNow(new Date());
+      if (alive) setNow(new Date(Date.now() + offset));
     };
     const raf = requestAnimationFrame(tick);
     const t = setInterval(tick, 1000);

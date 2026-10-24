@@ -26,6 +26,6 @@ export async function GET() {
 
   return Response.json(body, {
     status: dbOk ? 200 : 503,
-    headers: { "Cache-Control": "no-store" },
+    headers: { "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow" },
   });
 }

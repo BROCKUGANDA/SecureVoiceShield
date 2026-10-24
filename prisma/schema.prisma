@@ -22,6 +22,8 @@ model Decision {
   signals       String // JSON snapshot (values only, never audio)
   latencyMs     Int      @default(0)
   auditSeq      Int
+  policyVersion String   @default("ug-public-2026.10.2")
+  expiresAt     DateTime? // a decision is never reused after this (10, section 2)
   createdAt     DateTime @default(now())
 }
 
@@ -36,9 +38,41 @@ model AuditEntry {
   reasonCodes   String   @default("[]")
   policyVersion String
   inputDigest   String
+  modelVersions String   @default("{}")
+  traceId       String?
   prevHash      String
   entryHash     String
+  sig           String? // ES256 signature over the entry hash (13, section 6.2)
   createdAt     DateTime @default(now())
+}
+
+// Transactional outbox (09, principle A-4): the event is written in the same
+// transaction as the state change it describes, so an event can never exist
+// without its decision, nor a decision without its event.
+model OutboxEvent {
+  id        String   @id // event id, also the CloudEvents id
+  seq       Int      @unique
+  type      String // me.securevoiceai.shield.<name>.v1
+  subject   String // ordering key: decision id, session id, number hash
+  lane      String   @default("standard")
+  cell      String   @default("ug")
+  payload   String // CloudEvents data — IDs, codes and times only, never personal data
+  createdAt DateTime @default(now())
+}
+
+// A number owner can challenge a label (13, section 8). The review deadline
+// is 72 hours from the appeal; the label stays visible while it is open.
+model Appeal {
+  id             String   @id @default(cuid())
+  numberHash     String
+  reason         String
+  status         String   @default("open") // open | upheld | rejected
+  decision       String? // upheld | rejected — the outcome of the review
+  reviewDeadline DateTime
+  createdAt      DateTime @default(now())
+  decidedAt      DateTime?
+
+  @@index([numberHash])
 }
 
 // A confirmed scam report. One row per independent reporter per number, so
@@ -68,10 +102,11 @@ model VerifiedCall {
 // Guardian sessions are server state: the media fork decides the scenario,
 // so the client never gets to choose the outcome of a live call.
 model GuardianSession {
-  id          String   @id
-  scenario    String
-  language    String
-  createdAt   DateTime @default(now())
-  expiresAt   DateTime
-  completedAt DateTime?
+  id            String   @id
+  scenario      String
+  scenarioSource String  @default("media-fork")
+  language      String
+  createdAt     DateTime @default(now())
+  expiresAt     DateTime
+  completedAt   DateTime?
 }

@@ -6,10 +6,15 @@ export const SHIELD_MODE_HEADER = "X-Shield-Mode";
 
 /**
  * Every response is no-store: decisions are personal evidence and operating
- * modes are live. Headers on both success and problem responses.
+ * modes are live. API responses are never indexed (14, section 3) — check
+ * results have no URL and must never be shareable as links.
  */
 function baseHeaders(extra?: Record<string, string>): Record<string, string> {
-  return { "Cache-Control": "no-store", ...(extra ?? {}) };
+  return {
+    "Cache-Control": "no-store",
+    "X-Robots-Tag": "noindex, nofollow",
+    ...(extra ?? {}),
+  };
 }
 
 export function problem(
@@ -41,6 +46,7 @@ export function problem(
 export async function ok(data: unknown, mode?: CellMode | string, init?: ResponseInit): Promise<Response> {
   const headers = new Headers(init?.headers);
   headers.set("Cache-Control", "no-store");
+  headers.set("X-Robots-Tag", "noindex, nofollow");
   headers.set(SHIELD_MODE_HEADER, mode ?? (await currentMode()));
   return Response.json(data, { ...init, headers });
 }

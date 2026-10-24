@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { VerdictGlyph } from "./verdict";
+import { FaqJsonLd } from "./structured-data";
 import { VERDICT_META, type Verdict } from "@/lib/shield-engine";
 
 /* ------------------------------------------------------------------ */
@@ -87,7 +88,7 @@ export function SignalsSection() {
       icon: <MessageSquareWarning className="size-5" />,
       id: "02 · liveness",
       title: "Can it answer live?",
-      body: "\u201CPlease repeat these words: basket, river, seven.\u201D Words are random per call, never numbers or dates. Real-time clones lag, glitch or drift; text-to-speech operators have to type — and typing shows.",
+      body: "\u201CPlease repeat these words: basket, river, seven.\u201D Words are random per call, never dates or times. Real-time clones lag, glitch or drift; text-to-speech operators have to type — and typing shows.",
     },
     {
       icon: <CardSim className="size-5" />,
@@ -265,7 +266,7 @@ export function ProductsSection() {
             <pre className="nice-scroll overflow-x-auto rounded-2xl border border-console-line bg-black/35 p-4 font-mono text-[11.5px] leading-relaxed text-console-ink/85">
 {`POST /v1/assess
 {
-  "msisdn":      "+255712345678",
+  "msisdn":      "+255 7XX XXX X12",
   "channel":     "outbound_transfer",
   "amountMinor": 50000000,
   "currency":    "TZS"
@@ -279,6 +280,12 @@ export function ProductsSection() {
             </pre>
             <p className="mt-3 flex items-center gap-2 font-mono text-[10.5px] uppercase tracking-wider text-console-ink/45">
               <Wifi className="size-3.5" /> every failure mode returns step_up — never allow
+            </p>
+            <p className="mt-2 text-[13px] leading-relaxed text-console-ink/55">
+              This is the business API. The sandbox above exposes the same engine on the public
+              routes — <span className="font-mono text-console-ink/75">POST /api/assess</span> with{" "}
+              <span className="font-mono text-console-ink/75">{"{ number }"}</span> — so you can try
+              the decision path without credentials.
             </p>
           </div>
         </div>
@@ -484,7 +491,11 @@ function PlaneConnector({ label }: { label: string }) {
 /* FAQ — written answer-first for answer engines (AEO)                 */
 /* ------------------------------------------------------------------ */
 
-const FAQS = [
+/**
+ * The questions the page answers. Exported so the FAQPage structured data
+ * (14, section 6) quotes exactly what the accordion shows.
+ */
+export const FAQS = [
   {
     q: "Is this call from my bank real?",
     a: "Ask Shield. If the bank registered the call, your app shows \u201CYour bank is calling you now\u201D. If nothing shows, hang up and call the number on your card. Spoofed caller ID cannot fake a registry entry.",
@@ -524,6 +535,7 @@ export function FaqSection() {
             </AccordionItem>
           ))}
         </Accordion>
+        <FaqJsonLd items={FAQS} />
       </div>
     </section>
   );

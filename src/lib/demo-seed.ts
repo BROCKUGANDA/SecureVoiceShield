@@ -9,7 +9,12 @@ import { hmacNumber } from "@/lib/pepper";
  * every outbound call — so an expired entry is renewed rather than served.
  */
 
-const REGISTRY = [
+/**
+ * The verified-call registry: the single source of truth for official bank
+ * numbers. Published by /.well-known/shield-official.json (14, section 10.8),
+ * so no official number is ever typed by hand.
+ */
+export const REGISTRY = [
   { bankName: "Emirates NBD", market: "AE", e164: "+971420160000", minutesValid: 15 },
   { bankName: "Equity Bank Kenya", market: "KE", e164: "+254203281000", minutesValid: 15 },
   { bankName: "Stanbic Bank Uganda", market: "UG", e164: "+256417303000", minutesValid: 15 },

@@ -1,17 +1,16 @@
-import { z } from "zod";
+import { randomUUID } from "crypto";
 import { db } from "@/lib/db";
-import { appendAudit } from "@/lib/audit";
+import { appendAuditWith } from "@/lib/audit";
 import { degraded, E164_RE, ok, problem, readJson, sanitizeNumber } from "@/lib/api";
+import { ReportsBody } from "@/lib/schemas";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
 import { hmacNumber, hmacReporter } from "@/lib/pepper";
+import { redactDigits } from "@/lib/redact";
 import { maskMsisdn, reputationBand } from "@/lib/shield-engine";
 
 export const dynamic = "force-dynamic";
 
-const Body = z.object({
-  number: z.string().min(6).max(24),
-  note: z.string().max(280).optional(),
-});
+const Body = ReportsBody;
 
 /** Reputation is counted over 14 days (09). */
 const REPUTATION_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
@@ -22,6 +21,8 @@ function sinceWindow(): Date {
 
 /** POST /api/reports — one tap adds the number to the shared blocklist. */
 export async function POST(req: Request) {
+  const traceId = randomUUID();
+
   const limit = rateLimit(req, "reports", 10);
   if (!limit.ok) {
     return problem(
@@ -51,51 +52,70 @@ export async function POST(req: Request) {
   const reporterHash = hmacReporter(`${clientIp(req)}|${numberHash}`);
 
   try {
-    let reportId: string;
-    let alreadyReported = false;
-    try {
-      const report = await db.scamReport.create({
-        data: { numberHash, reporterHash, note: parsed.data.note?.trim().slice(0, 280) || null },
-      });
-      reportId = report.id;
-    } catch (error) {
-      // Unique violation: this reporter has already filed for this number.
-      if (!isUniqueViolation(error)) throw error;
-      const existing = await db.scamReport.findUnique({
-        where: { numberHash_reporterHash: { numberHash, reporterHash } },
-      });
-      if (!existing) throw error;
-      reportId = existing.id;
-      alreadyReported = true;
-    }
+    // The report and its evidence entry commit together (I-3, A-4).
+    const { result } = await appendAuditWith(
+      {
+        action: "report.received",
+        resource: numberHash,
+        input: { numberHash },
+        traceId,
+      },
+      async (tx) => {
+        const existing = await tx.scamReport.findUnique({
+          where: { numberHash_reporterHash: { numberHash, reporterHash } },
+        });
+        if (existing) return { report: existing, alreadyReported: true };
+        const report = await tx.scamReport.create({
+          data: {
+            numberHash,
+            reporterHash,
+            // Free text is redacted at source: a typed number never reaches
+            // the database in the clear (12, section 12).
+            note: parsed.data.note ? redactDigits(parsed.data.note.trim().slice(0, 280)) : null,
+          },
+        });
+        return { report, alreadyReported: false };
+      },
+      (created, entry) =>
+        created.alreadyReported
+          ? []
+          : [
+              {
+                type: "me.securevoiceai.shield.report.received.v1",
+                subject: created.report.id,
+                lane: "standard",
+                data: { numberHash, auditSeq: entry.seq },
+              },
+            ],
+    );
 
     const total = await db.scamReport.count({
       where: { numberHash, createdAt: { gte: sinceWindow() } },
     });
 
-    await appendAudit({
-      action: "report.received",
-      resource: reportId,
-      input: { numberHash, alreadyReported },
-    });
-
     // E2: reputation needs independent reporters over time — a single report
     // never condemns a number on its own.
     return ok({
-      reportId,
+      reportId: result.report.id,
       subject: maskMsisdn(e164),
       totalReports: total,
       independentReporters: total,
       band: reputationBand(total),
-      alreadyReported,
+      alreadyReported: result.alreadyReported,
+      appealPath: "/api/appeals",
       appealNote: "The number’s owner can appeal this label and gets a decision within 72 hours.",
+      traceId,
     });
   } catch {
     return degraded("The report could not be filed right now. Your report stays important — please try again shortly.");
   }
 }
 
-/** GET /api/reports?number=… — independent reporter count for a number. */
+/**
+ * GET /api/reports?number=… — the public reputation band for a number.
+ * Public results are coarse bands (09): the raw count is not published, so
+ * the endpoint cannot be used to enumerate how many people reported someone.
+ */
 export async function GET(req: Request) {
   const limit = rateLimit(req, "reports-get", 60);
   if (!limit.ok) {
@@ -115,20 +135,11 @@ export async function GET(req: Request) {
     });
     return ok({
       subject: maskMsisdn(e164),
-      totalReports: total,
-      independentReporters: total,
       band: reputationBand(total),
+      labelled: total >= 3,
+      note: "A number is labelled ‘reported’ with 3 or more independent reporters in 14 days.",
     });
   } catch {
     return degraded("Reputation data is unavailable. Treat the number as unverified.");
   }
-}
-
-function isUniqueViolation(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error as { code?: string }).code === "P2002"
-  );
 }

@@ -1,19 +1,13 @@
 import { randomUUID } from "crypto";
-import { z } from "zod";
 import { db } from "@/lib/db";
 import { ok, problem, readJson } from "@/lib/api";
+import { GuardianSessionBody } from "@/lib/schemas";
 import { rateLimit } from "@/lib/rate-limit";
 import { GUARDIAN_SCRIPT, pickChallengeWords, type GuardianLang } from "@/lib/shield-engine";
 
 export const dynamic = "force-dynamic";
 
-const Body = z.object({
-  language: z.enum(["en", "sw", "lg"]),
-  // The media fork decides the scenario. The sandbox may propose one so the
-  // four scripted outcomes can be demonstrated — it is stored server-side and
-  // the client cannot change it later.
-  scenario: z.enum(["real_relative", "realtime_clone", "tts_operator", "caller_left"]).optional(),
-});
+const Body = GuardianSessionBody;
 
 const SESSION_TTL_MS = 90_000;
 
@@ -43,12 +37,16 @@ export async function POST(req: Request) {
   const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
 
   // Without a proposed scenario the server picks one itself — the outcome of
-  // a live call is never chosen by the caller.
-  const scenario = parsed.data.scenario ?? pickScenario(sessionId);
+  // a live call is never chosen by the caller. The sandbox may propose one so
+  // the four scripted outcomes can be demonstrated; the response says where
+  // the scenario came from, and it cannot be changed afterwards.
+  const proposed = parsed.data.scenario;
+  const scenario = proposed ?? pickScenario(sessionId);
+  const scenarioSource = proposed ? "sandbox-demo" : "media-fork";
 
   try {
     await db.guardianSession.create({
-      data: { id: sessionId, scenario, language: lang, expiresAt },
+      data: { id: sessionId, scenario, scenarioSource, language: lang, expiresAt },
     });
   } catch {
     return problem(503, "Session store unavailable", "SH-GUARDIAN-503", "Shield could not open a session. Call back on a number you saved.");
@@ -64,6 +62,7 @@ export async function POST(req: Request) {
     // 8–14 s answer window, compressed in the demo timeline.
     answerWindowSec: 8,
     expiresAt: expiresAt.toISOString(),
+    scenarioSource,
   });
 }
 

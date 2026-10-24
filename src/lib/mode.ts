@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { appendAuditWith } from "@/lib/audit";
 
 /**
  * Operating modes per cell (05, section 2). Modes are derived from live
@@ -36,7 +37,22 @@ const CACHE_MS = 5_000;
 /** Most severe first: a caller must never read a calmer mode than reality. */
 const SEVERITY: CellMode[] = ["DEGRADED", "TELCO_DEGRADED", "SURGE", "NORMAL"];
 
-let cached: { at: number; state: ModeState } | null = null;
+/**
+ * The cache lives on globalThis, not in the module: each route is its own
+ * server bundle, so a module-level cache would be per-bundle and a mode
+ * change seen by one route would not reach another.
+ */
+const globalForMode = globalThis as unknown as {
+  shieldModeCache?: { at: number; state: ModeState };
+};
+
+function readCache(): { at: number; state: ModeState } | null {
+  return globalForMode.shieldModeCache ?? null;
+}
+
+function writeCache(entry: { at: number; state: ModeState }): void {
+  globalForMode.shieldModeCache = entry;
+}
 
 function mostSevere(modes: ModeEntry[]): CellMode {
   for (const candidate of SEVERITY) {
@@ -55,9 +71,17 @@ export async function deriveMode(): Promise<ModeState> {
       db.decision.count({ where: { verdict: "danger", createdAt: { gte: hourAgo } } }),
       // Only number checks consult the telco, so only they are the denominator.
       db.decision.count({ where: { kind: "number_check", createdAt: { gte: tenMinAgo } } }),
-      // TELCO_UNKNOWN is a reason code, not a signal value.
+      // TELCO_UNKNOWN is a reason code, not a signal value. Decisions taken
+      // while the cell was degraded are excluded: those lookups were refused
+      // before they were attempted, so counting them would keep the outage
+      // alive by itself.
       db.decision.count({
-        where: { kind: "number_check", reasons: { contains: "TELCO_UNKNOWN" }, createdAt: { gte: tenMinAgo } },
+        where: {
+          kind: "number_check",
+          reasons: { contains: "TELCO_UNKNOWN" },
+          signals: { not: { contains: '"degraded":true' } },
+          createdAt: { gte: tenMinAgo },
+        },
       }),
     ]);
 
@@ -81,13 +105,20 @@ export async function deriveMode(): Promise<ModeState> {
       });
     }
 
-    return {
+    const mode = mostSevere(modes);
+    await recordModeChange(mode);
+
+    const state: ModeState = {
       cell: "ug",
-      mode: mostSevere(modes),
+      mode,
       modes,
       nextReviewAt: new Date(now + 600_000).toISOString(),
       storeReachable: true,
     };
+    // A fresh derivation refreshes the cached view, so a mode change reaches
+    // the next decision instead of waiting out the cache window.
+    writeCache({ at: now, state });
+    return state;
   } catch {
     return {
       cell: "ug",
@@ -109,8 +140,43 @@ export async function deriveMode(): Promise<ModeState> {
 /** Cached read for the mode header on ordinary responses. */
 export async function currentMode(): Promise<CellMode> {
   const now = Date.now();
-  if (cached && now - cached.at < CACHE_MS) return cached.state.mode;
+  const entry = readCache();
+  if (entry && now - entry.at < CACHE_MS) return entry.state.mode;
   const state = await deriveMode();
-  cached = { at: now, state };
   return state.mode;
+}
+
+/**
+ * A mode change is a state change, so it writes an evidence entry and an
+ * urgent-lane event (09, section 4.4). Without this, a cell could degrade
+ * and leave no trace.
+ */
+async function recordModeChange(mode: CellMode): Promise<void> {
+  try {
+    const last = await db.auditEntry.findFirst({
+      where: { action: "system.mode.changed" },
+      orderBy: { seq: "desc" },
+    });
+    if (last && last.resource === mode) return;
+    if (!last && mode === "NORMAL") return; // nothing to compare against yet
+
+    await appendAuditWith(
+      {
+        action: "system.mode.changed",
+        resource: mode,
+        input: { mode },
+      },
+      async () => null,
+      (_result, entry) => [
+        {
+          type: "me.securevoiceai.shield.system.mode.changed.v1",
+          subject: "ug",
+          lane: "urgent",
+          data: { mode, auditSeq: entry.seq },
+        },
+      ],
+    );
+  } catch {
+    // Recording the change must never break the probe that noticed it.
+  }
 }
