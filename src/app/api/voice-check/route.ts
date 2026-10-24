@@ -1,6 +1,7 @@
+import { randomUUID } from "crypto";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { appendAudit } from "@/lib/audit";
+import { appendAuditWith } from "@/lib/audit";
 import { degraded, ok, problem, readJson } from "@/lib/api";
 import { rateLimit } from "@/lib/rate-limit";
 import { assessVoice, REASON_COPY } from "@/lib/shield-engine";
@@ -11,7 +12,7 @@ const Body = z.object({
   fileName: z.string().min(1).max(200),
   sizeKb: z.number().int().min(0).max(100_000),
   durationSec: z.number().min(0).max(600),
-  preset: z.string().max(64).optional(),
+  preset: z.enum(["family-emergency.m4a", "mum-real-voice.ogg", "forwarded-3x.opus"]).optional(),
 });
 
 /**
@@ -20,6 +21,8 @@ const Body = z.object({
  * this demo; production deletes it within 60 s of scoring (SP-1).
  */
 export async function POST(req: Request) {
+  const started = Date.now();
+
   const limit = rateLimit(req, "voice-check", 20);
   if (!limit.ok) {
     return problem(
@@ -53,27 +56,36 @@ export async function POST(req: Request) {
       );
     }
 
-    const uploadId = "upl_" + Math.random().toString(36).slice(2, 10);
-    const audit = await appendAudit({
-      action: "decision.created",
-      resource: uploadId,
-      reasonCodes: outcome.reasons,
-      input: { fileName: parsed.data.fileName, sizeKb: parsed.data.sizeKb, durationSec: parsed.data.durationSec },
-    });
+    const uploadId = "upl_" + randomUUID().replace(/-/g, "").slice(0, 16);
+    const latencyMs = Date.now() - started;
 
-    await db.decision.create({
-      data: {
-        kind: "voice_check",
-        subject: uploadId,
-        subjectMasked: uploadId,
-        verdict: outcome.verdict,
-        reasons: JSON.stringify(outcome.reasons),
-        action: outcome.action,
-        signals: JSON.stringify({ detectors: outcome.detectors, durationSec: outcome.durationSec }),
-        latencyMs: 380 + Math.floor(Math.random() * 220),
-        auditSeq: audit.seq,
+    // The evidence entry and the decision commit together (I-3).
+    const { audit } = await appendAuditWith(
+      {
+        action: "decision.created",
+        resource: uploadId,
+        reasonCodes: outcome.reasons,
+        input: {
+          fileName: parsed.data.fileName,
+          sizeKb: parsed.data.sizeKb,
+          durationSec: parsed.data.durationSec,
+        },
       },
-    });
+      async (tx, entry) =>
+        tx.decision.create({
+          data: {
+            kind: "voice_check",
+            subject: uploadId,
+            subjectMasked: uploadId,
+            verdict: outcome.verdict,
+            reasons: JSON.stringify(outcome.reasons),
+            action: outcome.action,
+            signals: JSON.stringify({ detectors: outcome.detectors, durationSec: outcome.durationSec }),
+            latencyMs,
+            auditSeq: entry.seq,
+          },
+        }),
+    );
 
     return ok({
       checkId: uploadId,
@@ -83,6 +95,7 @@ export async function POST(req: Request) {
       recommendedAction: outcome.action,
       detectors: outcome.detectors,
       durationSec: outcome.durationSec,
+      latencyMs,
       audioDeletedAfterSec: 60,
       audit: { seq: audit.seq, entryHash: audit.entryHash },
     });

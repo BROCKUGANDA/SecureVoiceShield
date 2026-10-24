@@ -116,7 +116,7 @@ export function AuditPanel() {
           <div>
             <p className="text-sm font-bold text-console-ink">Evidence log — hash chain · cell {data?.cell ?? "ug"}</p>
             <p className="font-mono text-[10.5px] uppercase tracking-wider text-console-ink/45">
-              entryHash = sha256(seq ∥ at ∥ action ∥ resource ∥ reasons ∥ prevHash)
+              entryHash = sha256(seq ∥ at ∥ action ∥ resource ∥ reasons ∥ actor ∥ policy ∥ inputDigest ∥ cell ∥ prevHash)
             </p>
           </div>
         </div>

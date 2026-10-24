@@ -3,8 +3,8 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
   url      = env("DATABASE_URL")
+  provider = "sqlite"
 }
 
 // Every state-changing write stores the exact decision it produced.
@@ -12,8 +12,9 @@ datasource db {
 model Decision {
   id            String   @id @default(cuid())
   idemKey       String?  @unique
+  idemBodyHash  String?
   kind          String // number_check | voice_check | guardian | verified_lookup
-  subject       String // masked / hashed subject, never a raw number
+  subject       String // HMAC of the subject, or an opaque id — never a raw number
   subjectMasked String
   verdict       String // clear | caution | danger | inconclusive | verified
   reasons       String // JSON string[] of reason codes
@@ -40,21 +41,37 @@ model AuditEntry {
   createdAt     DateTime @default(now())
 }
 
+// A confirmed scam report. One row per independent reporter per number, so
+// one caller cannot inflate a number's reputation (09, reputation poisoning).
 model ScamReport {
-  id         String   @id @default(cuid())
-  numberE164 String
-  note       String?
-  createdAt  DateTime @default(now())
+  id           String   @id @default(cuid())
+  numberHash   String
+  reporterHash String
+  note         String?
+  createdAt    DateTime @default(now())
 
-  @@index([numberE164])
+  @@unique([numberHash, reporterHash])
+  @@index([numberHash])
 }
 
 // Registry of real outbound bank calls: "Was that call real?" looks up here.
+// Numbers are stored as HMACs; the bank name and market are what is displayed.
 model VerifiedCall {
   id           String   @id @default(cuid())
   bankName     String
   market       String // AE | KE | UG | TZ
-  e164         String   @unique
+  e164Hash     String   @unique
   minutesValid Int      @default(15)
   createdAt    DateTime @default(now())
+}
+
+// Guardian sessions are server state: the media fork decides the scenario,
+// so the client never gets to choose the outcome of a live call.
+model GuardianSession {
+  id          String   @id
+  scenario    String
+  language    String
+  createdAt   DateTime @default(now())
+  expiresAt   DateTime
+  completedAt DateTime?
 }

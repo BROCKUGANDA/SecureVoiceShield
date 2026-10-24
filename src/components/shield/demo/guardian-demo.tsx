@@ -76,7 +76,7 @@ export function GuardianDemo() {
     const res = await fetch("/api/guardian/session", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ language: lang }),
+      body: JSON.stringify({ language: lang, scenario }),
     });
     if (!alive()) return;
     const data = (await res.json()) as SessionResponse;
@@ -129,7 +129,7 @@ export function GuardianDemo() {
     const comp = await fetch("/api/guardian/complete", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sessionId: data.sessionId, scenario, language: lang }),
+      body: JSON.stringify({ sessionId: data.sessionId, language: lang }),
     });
     if (!alive()) return;
     const verdict = (await comp.json()) as CompleteResponse;

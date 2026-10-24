@@ -1,14 +1,15 @@
 import { db } from "@/lib/db";
 import { appendAudit } from "@/lib/audit";
 import { ensureSeed } from "@/lib/demo-seed";
-import { ok, problem, sanitizeNumber } from "@/lib/api";
+import { E164_RE, ok, problem, sanitizeNumber } from "@/lib/api";
 import { rateLimit } from "@/lib/rate-limit";
+import { hmacNumber } from "@/lib/pepper";
 import { maskMsisdn } from "@/lib/shield-engine";
 
 export const dynamic = "force-dynamic";
 
 const FAIL_SAFE_ADVICE =
-  "The registry could not be reached, so this call can\u2019t be confirmed. Hang up and call your bank on the number on your card.";
+  "The registry could not be reached, so this call can’t be confirmed. Hang up and call your bank on the number on your card.";
 
 /**
  * GET /api/verified-calls?number=… — "Was that call real?"
@@ -26,47 +27,50 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const raw = url.searchParams.get("number") ?? "";
   const e164 = sanitizeNumber(raw);
-  if (e164.length < 8) {
+  if (!E164_RE.test(e164)) {
     return problem(422, "Invalid phone number", "SH-NUMBER-422", "Use E.164 format, e.g. +256417303000.");
   }
 
   try {
     await ensureSeed();
 
-    const registered =
-      (await db.verifiedCall.findUnique({ where: { e164 } })) ??
-      (e164.replace(/\D/g, "").endsWith("0006")
-        ? {
-            id: "magic",
-            bankName: "Partner bank (demo registry)",
-            market: "UG",
-            e164,
-            minutesValid: 15,
-            createdAt: new Date(),
-          }
-        : null);
+    const registered = await db.verifiedCall.findUnique({ where: { e164Hash: hmacNumber(e164) } });
+    const magic = e164.replace(/\D/g, "").endsWith("0006")
+      ? { id: "magic", bankName: "Partner bank (demo registry)", market: "UG", minutesValid: 15, createdAt: new Date() }
+      : null;
+    const candidate = registered ?? magic;
+
+    // A registration is only a confirmation while it is still inside its
+    // window — the bank registered the call minutes ago, not days ago.
+    const minutesAgo = candidate
+      ? Math.max(0, Math.round((Date.now() - candidate.createdAt.getTime()) / 60_000))
+      : null;
+    const expired = candidate !== null && minutesAgo !== null && minutesAgo > candidate.minutesValid;
 
     await appendAudit({
       action: "verified_call.looked_up",
-      resource: registered ? registered.id : "unregistered",
-      input: { number: e164 },
+      resource: candidate && !expired ? candidate.id : "unregistered",
+      input: { numberHash: hmacNumber(e164) },
     });
 
-    if (!registered) {
+    if (!candidate || expired) {
       return ok({
         subject: maskMsisdn(e164),
         registered: false,
-        advice: "We can\u2019t confirm this call. Hang up and call your bank on the number on your card.",
+        expired: Boolean(expired),
+        advice: expired
+          ? "That call was registered earlier than our confirmation window allows. Hang up and call your bank on the number on your card."
+          : "We can’t confirm this call. Hang up and call your bank on the number on your card.",
       });
     }
 
     return ok({
       subject: maskMsisdn(e164),
       registered: true,
-      bank: registered.bankName,
-      market: registered.market,
-      wording: `This is a real call from ${registered.bankName}.`,
-      registeredMinutesAgo: 4,
+      bank: candidate.bankName,
+      market: candidate.market,
+      wording: `This is a real call from ${candidate.bankName}.`,
+      registeredMinutesAgo: minutesAgo,
     });
   } catch {
     return problem(

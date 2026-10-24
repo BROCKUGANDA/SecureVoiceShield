@@ -35,9 +35,6 @@ const nextConfig: NextConfig = {
   output: "standalone",
   poweredByHeader: false,
   reactStrictMode: true,
-  typescript: {
-    ignoreBuildErrors: true,
-  },
   allowedDevOrigins: ["*.space-z.ai"],
   async headers() {
     return [

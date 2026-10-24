@@ -124,9 +124,14 @@ export interface AssessOutcome {
   signals: NumberSignals;
 }
 
+/**
+ * Reputation band. `reports` is the count of INDEPENDENT reporters in the
+ * last 14 days — a number is publicly labelled "reported" with 3 or more of
+ * them (09, reputation poisoning), and 5 independent reporters condemn it.
+ */
 export function reputationBand(reports: number): "clean" | "elevated" | "high" {
   if (reports >= 5) return "high";
-  if (reports >= 2) return "elevated";
+  if (reports >= 3) return "elevated";
   return "clean";
 }
 
@@ -152,6 +157,7 @@ export function assessNumber(signals: NumberSignals): AssessOutcome {
   const swapHours = s.simSwap.status === "swapped" ? (s.simSwap.hoursAgo ?? 0) : null;
   const swapRecent24 = swapHours !== null && swapHours <= 24;
   const swapRecent72 = swapHours !== null && swapHours <= 72;
+  // Independent reporters in the last 14 days, not raw report rows.
   const reports = s.reputation.known ? s.reputation.reports : 0;
 
   // Danger: multiple independent signals agree, or overwhelming reputation.
@@ -166,7 +172,7 @@ export function assessNumber(signals: NumberSignals): AssessOutcome {
   if (swapRecent24 && s.forwarding.status === "on") {
     verdict = "danger";
     reasons.push("SIM_SWAP_RECENT", "CALL_FORWARDING_ON");
-  } else if (swapRecent24 && reports >= 2) {
+  } else if (swapRecent24 && reports >= 3) {
     verdict = "danger";
     reasons.push("SIM_SWAP_RECENT", "NUMBER_REPORTED");
   }
@@ -181,7 +187,7 @@ export function assessNumber(signals: NumberSignals): AssessOutcome {
       verdict = "caution";
       reasons.push("CALL_FORWARDING_ON");
     }
-    if (reports >= 2) {
+    if (reports >= 3) {
       verdict = "caution";
       reasons.push("NUMBER_REPORTED");
     }
@@ -293,8 +299,9 @@ export function assessVoice(input: VoiceInput): VoiceOutcome | { tooShort: true 
   } else if (generalFlags === 1 || flags.d1) {
     // One signal alone is never the verdict — Caution at most (A9/A11).
     verdict = "caution";
-    reasons.push("VOICE_SYNTHETIC_LIKELY");
-  } else if (cues.length >= 2) {
+    reasons.push("VOICE_SYNTHETIC_LIKELY", ...cues);
+  } else if (cues.length >= 1) {
+    // The story signal can only add risk: it can never produce Clear (16).
     verdict = "caution";
     reasons.push(...cues);
   } else {

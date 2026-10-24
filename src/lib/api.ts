@@ -1,5 +1,7 @@
 /** Shared API helpers: RFC 9457 problem+json and mode headers (02, section 3). */
 
+import { currentMode, type CellMode } from "@/lib/mode";
+
 export const SHIELD_MODE_HEADER = "X-Shield-Mode";
 
 /**
@@ -31,10 +33,15 @@ export function problem(
   );
 }
 
-export function ok(data: unknown, mode = "NORMAL", init?: ResponseInit): Response {
+/**
+ * Success response. The mode header always carries the live cell mode, so a
+ * client that reads `X-Shield-Mode` during a scam wave or a degraded cell
+ * sees the truth rather than a hardcoded NORMAL.
+ */
+export async function ok(data: unknown, mode?: CellMode | string, init?: ResponseInit): Promise<Response> {
   const headers = new Headers(init?.headers);
   headers.set("Cache-Control", "no-store");
-  headers.set(SHIELD_MODE_HEADER, mode);
+  headers.set(SHIELD_MODE_HEADER, mode ?? (await currentMode()));
   return Response.json(data, { ...init, headers });
 }
 
@@ -46,7 +53,13 @@ export function degraded(detail: string, extra?: Record<string, unknown>): Respo
     "SH-DEGRADED-503",
     detail,
     { safeAction: "step_up", ...(extra ?? {}) },
+    { [SHIELD_MODE_HEADER]: "DEGRADED" },
   );
+}
+
+/** 409 — an idempotency key was reused for a different request (10). */
+export function conflict(detail: string, extra?: Record<string, unknown>): Response {
+  return problem(409, "Idempotency key reused", "SH-IDEM-409", detail, extra);
 }
 
 export const E164_RE = /^\+[1-9]\d{7,14}$/;

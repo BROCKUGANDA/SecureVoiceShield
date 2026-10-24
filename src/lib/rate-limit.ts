@@ -12,12 +12,19 @@ interface Bucket {
 
 const buckets = new Map<string, Bucket>();
 
-/** Best-effort client identity: gateway IP chain, else a shared local key. */
+/**
+ * Best-effort client identity. Caddy overwrites `X-Forwarded-For` with the
+ * peer address (`header_up X-Forwarded-For {remote_host}`), so behind the
+ * edge proxy this is the real client. When another proxy appends to the
+ * chain, the LAST hop is the one the nearest trusted proxy saw — the first
+ * entry is the most spoofable, so it is never trusted on its own.
+ */
 export function clientIp(req: Request): string {
   const xff = req.headers.get("x-forwarded-for");
   if (xff) {
-    const first = xff.split(",")[0]?.trim();
-    if (first) return first;
+    const hops = xff.split(",").map((h) => h.trim()).filter(Boolean);
+    const last = hops[hops.length - 1];
+    if (last) return last;
   }
   return req.headers.get("x-real-ip")?.trim() || "local";
 }
@@ -28,13 +35,7 @@ export interface RateLimitResult {
   retryAfterSec: number;
 }
 
-export function rateLimit(
-  req: Request,
-  scope: string,
-  limit: number,
-  windowMs = 60_000,
-): RateLimitResult {
-  const key = `${scope}:${clientIp(req)}`;
+function take(key: string, limit: number, windowMs: number): RateLimitResult {
   const now = Date.now();
 
   // Opportunistic GC so the map cannot grow unbounded.
@@ -59,4 +60,26 @@ export function rateLimit(
     };
   }
   return { ok: true, remaining: limit - bucket.count, retryAfterSec: 0 };
+}
+
+export function rateLimit(
+  req: Request,
+  scope: string,
+  limit: number,
+  windowMs = 60_000,
+): RateLimitResult {
+  return take(`${scope}:ip:${clientIp(req)}`, limit, windowMs);
+}
+
+/**
+ * Per-subject limit (09: 20 per minute per subject number). Keyed on the
+ * subject, not the caller, so rotating the source address cannot lift it.
+ */
+export function rateLimitSubject(
+  scope: string,
+  subject: string,
+  limit: number,
+  windowMs = 60_000,
+): RateLimitResult {
+  return take(`${scope}:subject:${subject}`, limit, windowMs);
 }

@@ -1,9 +1,11 @@
+import { createHash } from "crypto";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { appendAudit } from "@/lib/audit";
+import { appendAuditWith } from "@/lib/audit";
 import { ensureSeed } from "@/lib/demo-seed";
-import { degraded, E164_RE, ok, problem, readJson, sanitizeNumber } from "@/lib/api";
-import { rateLimit } from "@/lib/rate-limit";
+import { conflict, degraded, E164_RE, ok, problem, readJson, sanitizeNumber } from "@/lib/api";
+import { rateLimit, rateLimitSubject } from "@/lib/rate-limit";
+import { hmacNumber } from "@/lib/pepper";
 import {
   assessNumber,
   last4,
@@ -16,6 +18,16 @@ import {
 export const dynamic = "force-dynamic";
 
 const Body = z.object({ number: z.string().min(6).max(24) });
+
+/** Idempotency keys dedupe for 24 hours (10). */
+const IDEM_WINDOW_MS = 24 * 60 * 60 * 1000;
+/** Reputation is counted over 14 days (09). */
+const REPUTATION_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
+
+/** The body hash stored with an idempotency key (10). */
+function bodyHash(kind: string, number: string): string {
+  return "sha256:" + createHash("sha256").update(`${kind}:${number.replace(/\D/g, "")}`).digest("hex");
+}
 
 /**
  * POST /api/assess — the moment-of-risk check.
@@ -53,35 +65,70 @@ export async function POST(req: Request) {
     return problem(422, "Invalid phone number", "SH-NUMBER-422", "Use E.164 format, e.g. +256772123456.");
   }
 
+  // 09: 20 checks per minute per subject number — keyed on the number, so
+  // rotating the source address cannot lift it.
+  const subjectLimit = rateLimitSubject("assess-subject", hmacNumber(e164), 20);
+  if (!subjectLimit.ok) {
+    return problem(
+      429,
+      "Too many checks for this number",
+      "SH-RATE-429",
+      "You have checked this number several times in a row. Wait a moment before checking again.",
+      { retryAfterSec: subjectLimit.retryAfterSec },
+      { "Retry-After": String(subjectLimit.retryAfterSec) },
+    );
+  }
+
   try {
     await ensureSeed();
 
-    // Idempotent receiver (I-3): same key replays the stored response.
+    // Idempotent receiver (10): the body hash travels with the key, so a
+    // replay of the same key for a different number is a conflict, never a
+    // silently wrong answer.
+    const hash = bodyHash("number_check", e164);
     if (idemKey) {
-      const replay = await db.decision.findUnique({ where: { idemKey } });
-      if (replay) {
-        return ok(
-          {
-            decisionId: replay.id,
-            subject: replay.subjectMasked,
-            verdict: replay.verdict,
-            reasons: JSON.parse(replay.reasons),
-            reasonCopy: (JSON.parse(replay.reasons) as string[]).map(
-              (c) => REASON_COPY[c as keyof typeof REASON_COPY] ?? c,
-            ),
-            recommendedAction: replay.action,
-            latencyMs: replay.latencyMs,
-            audit: { seq: replay.auditSeq },
-            replayed: true,
-          },
-          "NORMAL",
-        );
+      const existing = await db.decision.findUnique({ where: { idemKey } });
+      if (existing) {
+        const age = Date.now() - existing.createdAt.getTime();
+        if (existing.idemBodyHash === hash && age <= IDEM_WINDOW_MS) {
+          const entry = await db.auditEntry.findUnique({ where: { seq: existing.auditSeq } });
+          const reasons = JSON.parse(existing.reasons) as string[];
+          return ok(
+            {
+              decisionId: existing.id,
+              subject: existing.subjectMasked,
+              verdict: existing.verdict,
+              reasons,
+              reasonCopy: reasons.map((c) => REASON_COPY[c as keyof typeof REASON_COPY] ?? c),
+              recommendedAction: existing.action,
+              signals: JSON.parse(existing.signals),
+              latencyMs: existing.latencyMs,
+              audit: {
+                seq: existing.auditSeq,
+                entryHash: entry?.entryHash,
+                prevHash: entry?.prevHash,
+              },
+              replayed: true,
+            },
+          );
+        }
+        if (existing.idemBodyHash !== null && existing.idemBodyHash !== hash) {
+          return conflict(
+            "This idempotency key was already used for a different number. Use a new key for a new check.",
+          );
+        }
+        // The 24 h window has passed (or the key predates body hashes): free
+        // the key so it can be reused. Only the transport field changes — the
+        // decision and its evidence entry are left untouched.
+        await db.decision.update({
+          where: { id: existing.id },
+          data: { idemKey: `retired:${existing.id}` },
+        });
       }
     }
 
     const magic = last4(e164);
     let outcome: AssessOutcome;
-    let forcedLatency = 0;
 
     if (magic === "0001") {
       outcome = assessNumber({
@@ -129,7 +176,6 @@ export async function POST(req: Request) {
     } else if (magic === "0007") {
       // Slow response: tests the client timeout contract (fail toward step_up).
       await new Promise((r) => setTimeout(r, 950));
-      forcedLatency = 950;
       outcome = assessNumber({
         simSwap: { status: "ok" },
         forwarding: { status: "off" },
@@ -141,8 +187,14 @@ export async function POST(req: Request) {
         safeAction: "step_up",
       });
     } else {
-      // Real numbers: live reputation from the shared report pool.
-      const reports = await db.scamReport.count({ where: { numberE164: e164 } });
+      // Real numbers: independent reporters over the last 14 days.
+      const numberHash = hmacNumber(e164);
+      const reports = await db.scamReport.count({
+        where: {
+          numberHash,
+          createdAt: { gte: new Date(Date.now() - REPUTATION_WINDOW_MS) },
+        },
+      });
       outcome = assessNumber({
         simSwap: { status: "ok" },
         forwarding: { status: "off" },
@@ -151,46 +203,47 @@ export async function POST(req: Request) {
       });
     }
 
-    const latencyMs = forcedLatency || Math.max(42, Date.now() - started);
+    const latencyMs = Date.now() - started;
     const masked = maskMsisdn(e164);
 
-    const audit = await appendAudit({
-      action: "decision.created",
-      resource: "assess",
-      reasonCodes: outcome.reasons,
-      input: { number: e164 },
-    });
-
-    const decision = await db.decision.create({
-      data: {
-        idemKey: idemKey ?? null,
-        kind: "number_check",
-        subject: e164,
-        subjectMasked: masked,
-        verdict: outcome.verdict,
-        reasons: JSON.stringify(outcome.reasons),
-        action: outcome.action,
-        signals: JSON.stringify(outcome.signals),
-        latencyMs,
-        auditSeq: audit.seq,
-      },
-    });
-
-    return ok(
+    // The evidence entry and the decision commit together (I-3).
+    const { audit, result: decision } = await appendAuditWith(
       {
-        decisionId: decision.id,
-        subject: masked,
-        verdict: outcome.verdict,
-        reasons: outcome.reasons,
-        reasonCopy: outcome.reasons.map((c) => REASON_COPY[c]),
-        recommendedAction: outcome.action,
-        signals: outcome.signals,
-        latencyMs,
-        audit: { seq: audit.seq, entryHash: audit.entryHash, prevHash: audit.prevHash },
-        replayed: false,
+        action: "decision.created",
+        resource: "assess",
+        reasonCodes: outcome.reasons,
+        input: { numberHash: hmacNumber(e164) },
       },
-      "NORMAL",
+      async (tx, entry) =>
+        tx.decision.create({
+          data: {
+            idemKey: idemKey ?? null,
+            idemBodyHash: idemKey ? hash : null,
+            kind: "number_check",
+            subject: hmacNumber(e164),
+            subjectMasked: masked,
+            verdict: outcome.verdict,
+            reasons: JSON.stringify(outcome.reasons),
+            action: outcome.action,
+            signals: JSON.stringify(outcome.signals),
+            latencyMs,
+            auditSeq: entry.seq,
+          },
+        }),
     );
+
+    return ok({
+      decisionId: decision.id,
+      subject: masked,
+      verdict: outcome.verdict,
+      reasons: outcome.reasons,
+      reasonCopy: outcome.reasons.map((c) => REASON_COPY[c]),
+      recommendedAction: outcome.action,
+      signals: outcome.signals,
+      latencyMs,
+      audit: { seq: audit.seq, entryHash: audit.entryHash, prevHash: audit.prevHash },
+      replayed: false,
+    });
   } catch {
     // Evidence store unavailable: fail toward verification, never clear (F-1).
     return degraded("The evidence store is unavailable, so this check is treated as inconclusive. Never treat silence as safe.");
