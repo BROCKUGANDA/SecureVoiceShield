@@ -48,7 +48,7 @@ export function VoiceCheck() {
     setProblem(null);
     setActiveName(input.fileName);
 
-    const fetchPromise = fetch("/api/voice-check", {
+    const fetchPromise = fetch("/api/voice-check/", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(input),

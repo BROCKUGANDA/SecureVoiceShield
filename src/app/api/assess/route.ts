@@ -6,6 +6,7 @@ import { conflict, degraded, E164_RE, ok, problem, readJson, sanitizeNumber } fr
 import { AssessBody } from "@/lib/schemas";
 import { rateLimit, rateLimitSubject } from "@/lib/rate-limit";
 import { hmacNumber } from "@/lib/pepper";
+import { getPorts } from "@/lib/ports-registry";
 import { currentMode } from "@/lib/mode";
 import {
   assessNumber,
@@ -167,86 +168,67 @@ export async function POST(req: Request) {
       band: reputationBand(realReports),
     };
 
+    // The telco signals come through the port: an adapter translates, it never
+    // decides (10, section 1). An unknown answer stays unknown.
+    const telcoSignal = telcoDegraded
+      ? null
+      : await getPorts().telco.lookup({ msisdn: e164, sandboxMagic: magic });
+    const telco = telcoSignal?.status === "ok" && telcoSignal.value ? telcoSignal.value : null;
+    const telcoUnknown = telco === null;
+
     let outcome: AssessOutcome;
     let timedOut = false;
 
-    if (telcoDegraded) {
-      outcome = assessNumber({
-        simSwap: { status: "unknown" },
-        forwarding: { status: "unknown" },
-        reputation: realReputation,
-        verifiedCall: null,
-      });
-      // The lookup was refused, not attempted and failed: it must not count
-      // towards the unknown ratio, or the outage would keep itself alive.
-      outcome = { ...outcome, signals: { ...outcome.signals, degraded: true } };
-    } else if (magic === "0001") {
-      outcome = assessNumber({
-        simSwap: { status: "swapped", hoursAgo: 2 },
-        forwarding: { status: "off" },
-        reputation: { known: true, reports: 0, band: "clean" },
-        verifiedCall: null,
-      });
-    } else if (magic === "0002") {
-      outcome = assessNumber({
-        simSwap: { status: "ok" },
-        forwarding: { status: "on" },
-        reputation: { known: true, reports: 0, band: "clean" },
-        verifiedCall: null,
-      });
-    } else if (magic === "0003") {
-      outcome = assessNumber({
-        simSwap: { status: "unknown" },
-        forwarding: { status: "unknown" },
-        reputation: { known: true, reports: 0, band: "clean" },
-        verifiedCall: null,
-      });
-    } else if (magic === "0004") {
-      outcome = assessNumber({
-        simSwap: { status: "ok" },
-        forwarding: { status: "off" },
-        reputation: { known: true, reports: 9, band: "high" },
-        verifiedCall: null,
-      });
+    // The telco signals come from the port. The sandbox magic numbers for
+    // the reputation, the voice and the registry are layered on top. A
+    // degraded cell is not asked: its answer would be unknown either way.
+    const telcoSignals = telco ?? {
+      simSwap: { status: "unknown" as const },
+      forwarding: { status: "unknown" as const },
+    };
+
+    let reputation = realReputation;
+    let syntheticVoice = false;
+    let verifiedCall: { bank: string; minutesAgo: number } | null = null;
+
+    if (magic === "0004") {
+      reputation = { known: true, reports: 9, band: "high" };
     } else if (magic === "0005") {
-      outcome = assessNumber({
-        simSwap: { status: "ok" },
-        forwarding: { status: "off" },
-        reputation: { known: true, reports: 1, band: "clean" },
-        verifiedCall: null,
-        syntheticVoice: true,
-      });
+      reputation = { known: true, reports: 1, band: "clean" };
+      syntheticVoice = true;
     } else if (magic === "0006") {
-      outcome = assessNumber({
-        simSwap: { status: "ok" },
-        forwarding: { status: "off" },
-        reputation: { known: true, reports: 0, band: "clean" },
-        verifiedCall: { bank: "Partner bank (demo registry)", minutesAgo: 4 },
-      });
-    } else if (magic === "0007") {
+      verifiedCall = { bank: "Partner bank (demo registry)", minutesAgo: 4 };
+    }
+
+    if (magic === "0007") {
       // Slow response: tests the client timeout contract. The server blew its
       // RT-1 budget, so the answer is the cautious one, never a Clear
       // (09, section 1).
       await new Promise((r) => setTimeout(r, 950));
       timedOut = true;
-      outcome = assessNumber({
-        simSwap: { status: "unknown" },
-        forwarding: { status: "unknown" },
-        reputation: { known: true, reports: 0, band: "clean" },
-        verifiedCall: null,
-      });
     } else if (magic === "0008") {
       return problem(503, "Service degraded", "SH-MODE-503", "READ_ONLY mode: no new decisions.", {
         safeAction: "step_up",
       });
-    } else {
-      // Real numbers: the live reputation and the live telco answer.
-      outcome = assessNumber({
-        simSwap: { status: "ok" },
-        forwarding: { status: "off" },
-        reputation: realReputation,
-        verifiedCall: null,
-      });
+    }
+
+    outcome = assessNumber({
+      simSwap: telcoSignals.simSwap,
+      forwarding: telcoSignals.forwarding,
+      reputation,
+      verifiedCall,
+      ...(syntheticVoice ? { syntheticVoice } : {}),
+    });
+
+    if (telcoDegraded) {
+      // The lookup was refused, not attempted and failed: it must not count
+      // towards the unknown ratio, or the outage would keep itself alive.
+      outcome = { ...outcome, signals: { ...outcome.signals, degraded: true } };
+    } else if (telcoUnknown) {
+      outcome = {
+        ...outcome,
+        signals: { ...outcome.signals, telcoReason: telcoSignal?.reason ?? "telco signal unavailable" },
+      };
     }
 
     if (timedOut || Date.now() - started > ASSESS_HARD_TIMEOUT_MS) {

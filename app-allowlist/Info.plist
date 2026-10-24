@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Shield iOS reference Info.plist (14, section 10.3).
+
+  This is the CONTRACT, not a build input. The check
+  (scripts/check-app-manifest.ts) parses this file and fails on any usage
+  description Shield deliberately does not ask for, on a missing
+  localisation, on a missing background mode, on an open transport
+  security exception, or on an encryption flag that claims otherwise.
+
+  The App Store privacy label is generated from PrivacyInfo.xcprivacy, so the
+  label and the privacy manifest can never disagree (14, section 10.3).
+-->
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
+    <key>CFBundleDisplayName</key>
+    <string>Shield</string>
+    <key>CFBundleExecutable</key>
+    <string>$(EXECUTABLE_NAME)</string>
+    <key>CFBundleIdentifier</key>
+    <string>me.securevoiceai.shield</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>$(PRODUCT_NAME)</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>LSRequiresIPhoneOS</key>
+    <true/>
+
+    <!-- Per-app languages: en, ar, hi, ur, sw, lg. -->
+    <key>CFBundleLocalizations</key>
+    <array>
+        <string>en</string>
+        <string>ar</string>
+        <string>hi</string>
+        <string>ur</string>
+        <string>sw</string>
+        <string>lg</string>
+    </array>
+
+    <!-- Push only. No background audio, no background location, no VoIP. -->
+    <key>UIBackgroundModes</key>
+    <array>
+        <string>remote-notification</string>
+    </array>
+
+    <!-- No non-exempt encryption: TLS only, no custom cryptography shipped. -->
+    <key>ITSAppUsesNonExemptEncryption</key>
+    <false/>
+
+    <!-- No cleartext HTTP, no exceptions. -->
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSAllowsArbitraryLoads</key>
+        <false/>
+    </dict>
+
+    <!--
+      DELIBERATELY ABSENT. Shield does not ask for these, so these usage
+      descriptions must never appear in this file (14, section 10.3):
+
+        NSMicrophoneUsageDescription         - no in-app recording
+        NSContactsUsageDescription            - no contacts access
+        NSLocationWhenInUseUsageDescription  - no location
+        NSLocationAlwaysUsageDescription
+        NSLocationAlwaysAndWhenInUseUsageDescription
+        NSUserTrackingUsageDescription        - no tracking
+
+      Voice notes arrive by share, not by microphone; the Guardian joins by
+      call merge, not by recording on the phone. If a feature ever needs one
+      of these, it goes through privacy review and this file and the privacy
+      manifest change in the same pull request.
+    -->
+</dict>
+</plist>

@@ -61,6 +61,20 @@ export const AppealReason = z.string().min(10).max(600).meta({
   retention: "13-months",
 });
 
+export const AppealId = z.string().min(3).max(64).meta({
+  dataClass: "C1",
+  residency: "cell",
+  log: "value",
+});
+
+export const PossessionCode = z.string().min(4).max(12).meta({
+  dataClass: "C5",
+  pii: "one-time-code",
+  residency: "cell",
+  log: "never",
+  retention: "10-minutes",
+});
+
 export const SessionId = z.string().min(3).max(64).meta({
   dataClass: "C1",
   residency: "cell",
@@ -110,6 +124,119 @@ export const AppealsBody = z.object({
   reason: AppealReason,
 });
 
+export const AppealsVerifyBody = z.object({
+  appealId: AppealId,
+  code: PossessionCode,
+});
+
+/* ------------------------------------------------------------------ */
+/* The business tier (17, section 7)                                   */
+/* ------------------------------------------------------------------ */
+
+export const BusinessMsisdn = z.string().min(6).max(24).meta({
+  dataClass: "C3",
+  pii: "phone",
+  residency: "cell",
+  log: "hash+last3",
+  retention: "with-decision",
+});
+
+export const Channel = z.enum(["outbound_transfer", "otp_request", "payout", "account_change"]).meta({
+  dataClass: "C1",
+  residency: "cell",
+  log: "value",
+});
+
+export const AmountMinor = z.number().int().min(0).max(1_000_000_000_000).meta({
+  dataClass: "C3",
+  pii: "amount",
+  residency: "cell",
+  log: "value",
+  retention: "with-decision",
+});
+
+export const Currency = z.string().length(3).meta({
+  dataClass: "C1",
+  residency: "cell",
+  log: "value",
+});
+
+export const ExternalRef = z.string().max(64).meta({
+  dataClass: "C1",
+  residency: "cell",
+  log: "value",
+});
+
+export const BusinessAssessBody = z.object({
+  msisdn: BusinessMsisdn,
+  channel: Channel.optional(),
+  amountMinor: AmountMinor.optional(),
+  currency: Currency.optional(),
+  externalRef: ExternalRef.optional(),
+});
+
+export const OtpGuardBody = z.object({
+  msisdn: BusinessMsisdn,
+  purpose: z.string().max(64).meta({
+    dataClass: "C1",
+    residency: "cell",
+    log: "value",
+  }),
+  externalRef: ExternalRef.optional(),
+});
+
+export const VerifiedCallRegistration = z.object({
+  msisdn: BusinessMsisdn,
+  bankName: z.string().min(2).max(80).meta({
+    dataClass: "C1",
+    residency: "cell",
+    log: "value",
+  }),
+  market: z.enum(["AE", "KE", "UG", "TZ"]).meta({
+    dataClass: "C1",
+    residency: "cell",
+    log: "value",
+  }),
+  minutesValid: z.number().int().min(1).max(90).meta({
+    dataClass: "C1",
+    residency: "cell",
+    log: "value",
+  }),
+});
+
+export const OutcomeBody = z.object({
+  decisionId: z.string().min(3).max(64).meta({
+    dataClass: "C1",
+    residency: "cell",
+    log: "value",
+  }),
+  outcome: z.enum(["fraud_confirmed", "genuine", "unknown"]).meta({
+    dataClass: "C1",
+    residency: "cell",
+    log: "value",
+  }),
+  fraudType: z.string().max(64).meta({
+    dataClass: "C1",
+    residency: "cell",
+    log: "value",
+  }),
+  lossAmountMinor: AmountMinor.optional(),
+  lossCurrency: Currency.optional(),
+  confirmedAt: z.string().max(40).meta({
+    dataClass: "C1",
+    residency: "cell",
+    log: "value",
+  }),
+});
+
+export const EvidencePackBody = z.object({
+  decisionId: z.string().min(3).max(64).meta({
+    dataClass: "C1",
+    residency: "cell",
+    log: "value",
+  }),
+});
+
 /** The registry the build check walks. */
 export const SCHEMA_REGISTRY = {
   AssessBody,
@@ -118,4 +245,10 @@ export const SCHEMA_REGISTRY = {
   GuardianCompleteBody,
   ReportsBody,
   AppealsBody,
+  AppealsVerifyBody,
+  BusinessAssessBody,
+  OtpGuardBody,
+  VerifiedCallRegistration,
+  OutcomeBody,
+  EvidencePackBody,
 } as const;

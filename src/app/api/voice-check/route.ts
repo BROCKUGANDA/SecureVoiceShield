@@ -4,6 +4,7 @@ import { appendAuditWith } from "@/lib/audit";
 import { degraded, ok, problem, readJson } from "@/lib/api";
 import { VoiceCheckBody } from "@/lib/schemas";
 import { rateLimit } from "@/lib/rate-limit";
+import { getPorts } from "@/lib/ports-registry";
 import { assessVoice, MODEL_VERSIONS, REASON_COPY, RULE_PACK_VERSION } from "@/lib/shield-engine";
 
 export const dynamic = "force-dynamic";
@@ -43,7 +44,17 @@ export async function POST(req: Request) {
   }
 
   try {
-    const outcome = assessVoice(parsed.data);
+    // The detector reads come through the detector port; an adapter
+    // translates, it never decides (10, section 1).
+    const detectorSignal = await getPorts().detector.score({
+      fileName: parsed.data.fileName,
+      sizeKb: parsed.data.sizeKb,
+      durationSec: parsed.data.durationSec,
+      preset: parsed.data.preset,
+    });
+    const reads = detectorSignal.status === "ok" && detectorSignal.value ? detectorSignal.value : undefined;
+
+    const outcome = assessVoice(parsed.data, reads);
 
     if ("tooShort" in outcome) {
       // A1: under 3 s of speech.

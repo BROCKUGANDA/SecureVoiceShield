@@ -55,13 +55,13 @@ export const metadata: Metadata = {
   authors: [{ name: "SecureVoice" }],
   applicationName: SITE_NAME,
   alternates: {
-    // One honest entry: the self-referencing canonical.
+    // One honest entry: the self-referencing canonical for the root picker.
     //
-    // The eleven-locale hreflang set (14, section 2) is deliberately
-    // withheld until the locale routes exist. Publishing hreflang links to
-    // pages that are not there would tell crawlers to index nothing, so
-    // the set ships with the commit that adds /en-ae/, /ar-ae/ and the
-    // rest — not before.
+    // The eleven-locale hreflang set (14, section 2) is published by the
+    // locale routes themselves — src/app/[locale]/page.tsx — because each
+    // locale page owns its own canonical and its own reciprocal alternates.
+    // The root picker lists the same set for the pages it points at, and
+    // scripts/check-hreflang.ts proves the links are reciprocal.
     canonical: "/",
   },
   openGraph: {
@@ -105,7 +105,13 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    // Next.js renders one root layout for the whole site, and a root layout
+    // cannot read the route segment without making every page dynamic — so
+    // the served <html> element carries the default language and each locale
+    // page corrects it with a tiny inline script (src/components/shield/
+    // html-lang.tsx). The page body is wrapped in an element with the right
+    // lang and dir, so the served HTML is never ambiguous (14, section 5).
+    <html lang="en" dir="ltr" suppressHydrationWarning>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground`}
       >

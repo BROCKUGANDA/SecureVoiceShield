@@ -73,7 +73,7 @@ export function GuardianDemo() {
     setSpoken(-1);
     setWindowPct(0);
 
-    const res = await fetch("/api/guardian/session", {
+    const res = await fetch("/api/guardian/session/", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ language: lang, scenario }),
@@ -126,7 +126,7 @@ export function GuardianDemo() {
     await sleep(500);
     if (!alive()) return;
 
-    const comp = await fetch("/api/guardian/complete", {
+    const comp = await fetch("/api/guardian/complete/", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ sessionId: data.sessionId, language: lang }),

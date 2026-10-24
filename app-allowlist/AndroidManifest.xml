@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Shield Android manifest allow-list (14, section 10.2).
+
+  This file is the CONTRACT, not a build input. The mobile app generates its
+  own manifest through Expo config plugins; CI compares the merged manifest
+  against this file and fails on anything not listed here.
+
+  Rules the check (scripts/check-app-manifest.ts) enforces:
+
+    - Every <uses-permission> without tools:node="remove" is ALLOWED. A merged
+      manifest that requests any other permission fails the build.
+    - Every <uses-permission> with tools:node="remove" is FORBIDDEN: it must
+      never survive the manifest merge, and its presence in a merged manifest
+      fails the build.
+    - No SMS, call-log, contacts, microphone or location permission, ever.
+      Voice notes arrive by share or WhatsApp, and the Guardian joins by call
+      merge, never by recording on the phone (14, section 10.2).
+    - The application attributes below are the hardened defaults: no backup, no
+      cleartext traffic, right-to-left support for ar and ur.
+
+  Review: mobile lead and privacy, every release (14, section 12).
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    package="me.securevoiceai.shield">
+
+    <!-- Allowed. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+
+    <!-- Never requested. Removed if a library adds them. -->
+    <uses-permission android:name="android.permission.READ_SMS" tools:node="remove" />
+    <uses-permission android:name="android.permission.RECEIVE_SMS" tools:node="remove" />
+    <uses-permission android:name="android.permission.READ_CALL_LOG" tools:node="remove" />
+    <uses-permission android:name="android.permission.READ_CONTACTS" tools:node="remove" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" tools:node="remove" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" tools:node="remove" />
+    <uses-permission android:name="com.google.android.gms.permission.AD_ID" tools:node="remove" />
+
+    <application
+        android:name=".MainApplication"
+        android:label="@string/app_name"
+        android:allowBackup="false"
+        android:fullBackupContent="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:usesCleartextTraffic="false"
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:localeConfig="@xml/locales_config"
+        android:supportsRtl="true">
+
+        <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTask">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- Verified App Links -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="shield.securevoiceai.me" android:pathPrefix="/open/" />
+            </intent-filter>
+            <!-- Share a voice note to Shield -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="audio/*" />
+            </intent-filter>
+        </activity>
+
+        <!-- Warns on reported scam numbers. Needs the user to grant ROLE_CALL_SCREENING. -->
+        <service
+            android:name=".screening.ShieldCallScreeningService"
+            android:permission="android.permission.BIND_SCREENING_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.telecom.CallScreeningService" />
+            </intent-filter>
+        </service>
+    </application>
+</manifest>

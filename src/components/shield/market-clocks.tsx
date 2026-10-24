@@ -22,7 +22,7 @@ export function MarketClocks() {
     let offset = 0;
 
     // Ask the server what time it is and correct the device clock against it.
-    fetch("/api/health", { cache: "no-store" })
+    fetch("/api/health/", { cache: "no-store" })
       .then((res) => res.json())
       .then((body: { timestamp?: string }) => {
         if (!alive || !body.timestamp) return;

@@ -34,7 +34,7 @@ export function ModePill({ compact = false }: { compact?: boolean }) {
         return;
       }
       try {
-        const res = await fetch("/api/system/mode", { cache: "no-store" });
+        const res = await fetch("/api/system/mode/", { cache: "no-store" });
         if (!res.ok) throw new Error(String(res.status));
         const json = (await res.json()) as ModeResponse;
         failures = 0;

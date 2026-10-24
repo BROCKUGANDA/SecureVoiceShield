@@ -59,7 +59,7 @@ export function AuditPanel() {
       setLoading(true);
       setFailed(false);
       try {
-        const res = await fetch("/api/audit", { cache: "no-store" });
+        const res = await fetch("/api/audit/", { cache: "no-store" });
         if (!res.ok) throw new Error(String(res.status));
         const json = (await res.json()) as AuditResponse;
         if (alive) {

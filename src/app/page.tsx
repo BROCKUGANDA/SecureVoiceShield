@@ -1,89 +1,57 @@
+import type { Metadata } from "next";
 import { GoldenRuleBar, SiteHeader } from "@/components/shield/site-chrome";
-import { Hero } from "@/components/shield/hero";
-import { DemoConsole } from "@/components/shield/demo/demo-console";
-import { AuditPanel } from "@/components/shield/audit-panel";
-import { MarketsSection } from "@/components/shield/markets-section";
-import { Reveal } from "@/components/shield/reveal";
-import {
-  AgentsSection,
-  ArchitectureSection,
-  FaqSection,
-  ProductsSection,
-  SectionHead,
-  SignalsSection,
-  SiteFooter,
-  StatsStrip,
-  VerdictsSection,
-} from "@/components/shield/sections";
+import { LocalePicker } from "@/components/shield/locale-picker";
+import { HtmlLang } from "@/components/shield/html-lang";
+import { getDictionary, hreflangAlternates } from "@/lib/i18n";
+import { SITE_NAME, SITE_URL } from "@/lib/site";
+
+/**
+ * The root path is a market and language picker (14, section 2).
+ *
+ * The content that used to live here now lives at the eleven locale
+ * paths, each with its own market copy, its own direction and its own
+ * self-referencing canonical. The picker is not a redirect and not a dead
+ * end: it keeps the golden rule and links onward to every locale, so
+ * inbound links to "/" still land on something useful.
+ */
+const DICTIONARY = getDictionary("en-AE");
+
+export const metadata: Metadata = {
+  title: { absolute: "SecureVoice Shield — choose your market and language" },
+  description:
+    "Shield answers in eleven locales across four markets. Pick your market and language — each page has its own contacts, its own examples and its own canonical URL.",
+  alternates: {
+    canonical: "/",
+    // The picker is the x-default target, and it lists the whole set too.
+    languages: hreflangAlternates(),
+  },
+  openGraph: {
+    title: "SecureVoice Shield — choose your market and language",
+    description:
+      "Shield answers in eleven locales across four markets. Pick your market and language — each page has its own contacts, its own examples and its own canonical URL.",
+    type: "website",
+    siteName: SITE_NAME,
+    url: `${SITE_URL}/`,
+    locale: "en_UG",
+    alternateLocale: ["ar_AE", "hi_AE", "ur_AE", "en_KE", "sw_KE", "en_TZ", "sw_TZ", "en_AE", "lg_UG", "sw_UG"],
+  },
+  robots: { index: true, follow: true },
+};
 
 export default function Home() {
   return (
-    <div className="flex min-h-screen flex-col">
-      <a
-        href="#main"
-        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-[100] focus:rounded-full focus:bg-primary focus:px-5 focus:py-2.5 focus:text-sm focus:font-semibold focus:text-primary-foreground focus:shadow-lg"
-      >
-        Skip to content
-      </a>
-      <GoldenRuleBar />
-      <SiteHeader />
-
+    <div className="flex min-h-screen flex-col" lang="en" dir="ltr">
+      <HtmlLang lang="en" dir="ltr" />
+      <GoldenRuleBar d={DICTIONARY} />
+      <SiteHeader d={DICTIONARY} />
       <main id="main" tabIndex={-1} className="flex-1 focus:outline-none">
-        <Hero />
-        <StatsStrip />
-
-        {/* ------------------------------ Sandbox ------------------------------ */}
-        <section id="demo" className="border-b border-border/70 py-20 sm:py-24" aria-labelledby="demo-heading">
-          <div className="mx-auto max-w-5xl px-4 sm:px-6">
-            <Reveal>
-              <SectionHead
-                eyebrow="Live sandbox"
-                title="Run the checks yourself"
-                lede="A working slice of Shield: the deterministic engine, the verdict cards, the private Guardian flow and the hash-chained evidence log — wired to scripted sandbox answers."
-                headingId="demo-heading"
-              />
-            </Reveal>
-            <Reveal delay={0.08}>
-              <div className="mt-10">
-                <DemoConsole />
-              </div>
-              <p className="mt-6 text-center font-mono text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
-                sandbox · synthetic data · scripted telco answers · nothing here makes a real call
-              </p>
-            </Reveal>
-          </div>
-        </section>
-
-        <VerdictsSection />
-        <SignalsSection />
-        <ProductsSection />
-        <MarketsSection />
-        <AgentsSection />
-        <ArchitectureSection />
-
-        {/* ------------------------------ Audit chain ------------------------------ */}
-        <section id="audit" className="border-b border-border/70 py-20 sm:py-24" aria-labelledby="audit-heading">
-          <div className="mx-auto max-w-5xl px-4 sm:px-6">
-            <Reveal>
-              <SectionHead
-                eyebrow="Compliance"
-                title="Anyone can verify every decision"
-                lede="A live view of the evidence chain this page is writing to. Every check you ran above is in here — recomputed and re-verified on demand."
-                headingId="audit-heading"
-              />
-            </Reveal>
-            <Reveal delay={0.08}>
-              <div className="mt-10">
-                <AuditPanel />
-              </div>
-            </Reveal>
-          </div>
-        </section>
-
-        <FaqSection />
+        <LocalePicker />
       </main>
-
-      <SiteFooter />
+      <footer className="mt-auto border-t border-border/70 bg-console py-8 text-console-ink">
+        <div className="mx-auto max-w-7xl px-4 text-center font-mono text-[11px] uppercase tracking-[0.16em] text-console-ink/50 sm:px-6">
+          SecureVoice Shield · the golden rule: Shield never calls you first
+        </div>
+      </footer>
     </div>
   );
 }

@@ -7,6 +7,8 @@
  * produce "Clear" (F-1, F-4), and no single signal can clear or condemn.
  */
 
+import type { DetectorReads } from "@/lib/ports";
+
 export type Verdict = "clear" | "caution" | "danger" | "inconclusive" | "verified";
 
 /**
@@ -135,6 +137,8 @@ export interface NumberSignals {
    * attempted, so it must not count as a failed telco call (09, section 4.7).
    */
   degraded?: boolean;
+  /** Why the telco signal was unknown, when it was. */
+  telcoReason?: string;
 }
 
 export interface AssessOutcome {
@@ -278,8 +282,12 @@ const CUE_CYCLE: ReasonCode[] = ["URGENCY_CUES", "OTP_REQUEST", "PAYMENT_REDIREC
  * Rule pack 2 — voice note. D1 (ElevenLabs classifier) is provider-scoped: a
  * "not ElevenLabs" answer is never counted as human evidence. Verdict needs
  * two general detectors agreeing, or one plus story cues (section 4 of spec).
+ *
+ * The detector reads come from the detector port; when they are not supplied
+ * the engine computes the sandbox reads itself, so it stays pure and
+ * testable on its own.
  */
-export function assessVoice(input: VoiceInput): VoiceOutcome | { tooShort: true } {
+export function assessVoice(input: VoiceInput, reads?: DetectorReads): VoiceOutcome | { tooShort: true } {
   if (input.durationSec < 3) return { tooShort: true };
 
   // Quality gate (A2): tiny WhatsApp forwards are often too degraded.
@@ -294,29 +302,39 @@ export function assessVoice(input: VoiceInput): VoiceOutcome | { tooShort: true 
     };
   }
 
-  const presetTable: Record<string, { d1: boolean; d2: boolean; d3: boolean; cues: number }> = {
-    "family-emergency.m4a": { d1: true, d2: true, d3: true, cues: 3 },
-    "mum-real-voice.ogg": { d1: false, d2: false, d3: false, cues: 0 },
-    "forwarded-3x.opus": { d1: false, d2: false, d3: false, cues: 0 },
+  const source = reads ?? sandboxReads(input);
+  const detectors = {
+    d1ElevenLabs: source.d1ElevenLabs,
+    d2Vendor: source.d2Vendor,
+    d3InHouse: source.d3InHouse,
   };
-  const flags = input.preset && presetTable[input.preset] ? presetTable[input.preset] : seededFlags(`${input.fileName}:${input.sizeKb}`);
+  const generalFlags =
+    (source.d2Vendor === "flag" ? 1 : 0) + (source.d3InHouse === "flag" ? 1 : 0);
+  const cues = CUE_CYCLE.slice(0, Math.min(source.storyCues, 4));
 
-  const generalFlags = (flags.d2 ? 1 : 0) + (flags.d3 ? 1 : 0);
-  const cues = CUE_CYCLE.slice(0, Math.min(flags.cues, 4));
-  const anyUnknown = false; // demo detectors always answer; real ones can return unknown
+  // A general detector that did not answer means the voice can no longer be
+  // "no signs" — the floor rule applies (17, degradation table).
+  if (source.d2Vendor === "unknown" || source.d3InHouse === "unknown") {
+    return {
+      verdict: "inconclusive",
+      reasons: ["SIGNAL_UNAVAILABLE"],
+      action: "step_up",
+      detectors,
+      cues,
+      durationSec: input.durationSec,
+    };
+  }
 
   let verdict: Verdict;
   const reasons: ReasonCode[] = [];
 
-  if (anyUnknown) {
-    verdict = "inconclusive";
-  } else if (generalFlags >= 2) {
+  if (generalFlags >= 2) {
     verdict = "danger";
     reasons.push("VOICE_SYNTHETIC_LIKELY", ...cues);
   } else if (generalFlags === 1 && cues.length >= 2) {
     verdict = "danger";
     reasons.push("VOICE_SYNTHETIC_LIKELY", ...cues);
-  } else if (generalFlags === 1 || flags.d1) {
+  } else if (generalFlags === 1 || source.d1ElevenLabs === "flag") {
     // One signal alone is never the verdict — Caution at most (A9/A11).
     verdict = "caution";
     reasons.push("VOICE_SYNTHETIC_LIKELY", ...cues);
@@ -336,13 +354,28 @@ export function assessVoice(input: VoiceInput): VoiceOutcome | { tooShort: true 
     verdict,
     reasons: dedupe(reasons),
     action,
-    detectors: {
-      d1ElevenLabs: flags.d1 ? "flag" : "clear",
-      d2Vendor: flags.d2 ? "flag" : "clear",
-      d3InHouse: flags.d3 ? "flag" : "clear",
-    },
+    detectors,
     cues,
     durationSec: input.durationSec,
+  };
+}
+
+/** The sandbox reads, when no detector port has been consulted. */
+function sandboxReads(input: VoiceInput): DetectorReads {
+  const presetTable: Record<string, { d1: boolean; d2: boolean; d3: boolean; cues: number }> = {
+    "family-emergency.m4a": { d1: true, d2: true, d3: true, cues: 3 },
+    "mum-real-voice.ogg": { d1: false, d2: false, d3: false, cues: 0 },
+    "forwarded-3x.opus": { d1: false, d2: false, d3: false, cues: 0 },
+  };
+  const flags =
+    input.preset && presetTable[input.preset]
+      ? presetTable[input.preset]
+      : seededFlags(`${input.fileName}:${input.sizeKb}`);
+  return {
+    d1ElevenLabs: flags.d1 ? "flag" : "clear",
+    d2Vendor: flags.d2 ? "flag" : "clear",
+    d3InHouse: flags.d3 ? "flag" : "clear",
+    storyCues: flags.cues,
   };
 }
 

@@ -88,6 +88,69 @@ function legacyHash(entry: SegmentEntry, prevHash: string): string {
     : currentHash(entry, prevHash);
 }
 
+/** Check the anchors against the segment (13, section 6.2). */
+function verifyAnchors(
+  entries: { seq: number; entryHash: string }[],
+  anchors: AnchorRecord[],
+  publicKey: string | null,
+): { ok: boolean; checked: number; brokenAt?: string; detail?: string } {
+  let previousAnchorHash: string | null = null;
+  for (const anchor of anchors) {
+    const payload = [
+      anchor.id,
+      anchor.cell,
+      anchor.upToSeq,
+      anchor.headHash,
+      anchor.segmentDigest,
+      anchor.authority,
+      anchor.signature ?? "",
+      anchor.prevAnchorHash ?? "",
+      anchor.createdAt,
+    ].join("|");
+    const expected = sha256(payload);
+    if (expected !== anchor.anchorHash) {
+      return { ok: false, checked: 0, brokenAt: anchor.id, detail: "the anchor record was altered" };
+    }
+    if ((anchor.prevAnchorHash ?? null) !== previousAnchorHash) {
+      return { ok: false, checked: 0, brokenAt: anchor.id, detail: "the anchor chain was broken" };
+    }
+    previousAnchorHash = anchor.anchorHash;
+
+    const head = entries.find((e) => e.seq === anchor.upToSeq);
+    if (!head) {
+      return { ok: false, checked: 0, brokenAt: anchor.id, detail: `the segment does not reach entry #${anchor.upToSeq}` };
+    }
+    if (head.entryHash !== anchor.headHash) {
+      return { ok: false, checked: 0, brokenAt: anchor.id, detail: `the chain head at #${anchor.upToSeq} does not match the anchor` };
+    }
+    if (anchor.signature && publicKey) {
+      const valid = verify(
+        "sha256",
+        Buffer.from(`${anchor.headHash}|${anchor.segmentDigest}`, "utf8"),
+        { key: createPublicKey(publicKey!), dsaEncoding: "ieee-p1363" },
+        Buffer.from(anchor.signature.replace("ES256:", ""), "base64url"),
+      );
+      if (!valid) {
+        return { ok: false, checked: 0, brokenAt: anchor.id, detail: "the anchor signature did not verify" };
+      }
+    }
+  }
+  return { ok: true, checked: anchors.length };
+}
+
+interface AnchorRecord {
+  id: string;
+  cell: string;
+  upToSeq: number;
+  headHash: string;
+  segmentDigest: string;
+  authority: string;
+  signature: string | null;
+  prevAnchorHash: string | null;
+  anchorHash: string;
+  createdAt: string;
+}
+
 function verifySignature(entry: SegmentEntry, publicKeyPem: string): boolean {
   if (!entry.sig || !entry.sig.startsWith("ES256:")) return false;
   try {
@@ -143,13 +206,41 @@ async function loadSegment(): Promise<Segment> {
 const segment = await loadSegment();
 const result = verifySegment(segment);
 
+// Anchors, when supplied, are checked against the segment: each anchor's head
+// hash must be the chain head at its sequence, and the anchor file's own
+// chain must be intact.
+let anchorResult: { ok: boolean; checked: number; brokenAt?: string; detail?: string } | null = null;
+const anchorsIndex = process.argv.indexOf("--anchors");
+if (anchorsIndex >= 0 && process.argv[anchorsIndex + 1]) {
+  const anchors = readFileSync(process.argv[anchorsIndex + 1], "utf8")
+    .split("\n")
+    .filter((line) => line.trim().length > 0)
+    .map((line) => JSON.parse(line));
+  anchorResult = verifyAnchors(
+    segment.entries.map((e) => ({ seq: e.seq, entryHash: e.entryHash })),
+    anchors,
+    segment.publicKey ?? null,
+  );
+}
+
 console.log(`cell:      ${segment.cell}`);
 console.log(`generated: ${segment.generatedAt}`);
 console.log(`entries:   ${result.checked}`);
 console.log(`signed:    ${result.signed}${segment.publicKey ? "" : " (no public key published — signatures unchecked)"}`);
-if (result.ok) {
+if (anchorResult) {
+  console.log(
+    `anchors:   ${anchorResult.checked} checked — ${
+      anchorResult.ok
+        ? "every anchor matches the chain and its own chain is intact"
+        : `BROKEN at ${anchorResult.brokenAt}: ${anchorResult.detail}`
+    }`,
+  );
+}
+if (result.ok && (anchorResult === null || anchorResult.ok)) {
   console.log("VERDICT:   chain intact — every hash matches and every signature verifies");
+} else if (result.ok) {
+  console.log(`VERDICT:   CHAIN INTACT but the ANCHORS are broken at ${anchorResult?.brokenAt}: ${anchorResult?.detail}`);
 } else {
   console.log(`VERDICT:   CHAIN BROKEN at entry #${result.brokenAt}`);
 }
-process.exit(result.ok ? 0 : 1);
+process.exit(result.ok && (anchorResult === null || anchorResult.ok) ? 0 : 1);

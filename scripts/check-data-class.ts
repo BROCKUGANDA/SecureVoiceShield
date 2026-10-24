@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, statSync } from "fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "fs";
 import { join } from "path";
 import { SCHEMA_REGISTRY } from "../src/lib/schemas";
 
@@ -9,9 +9,11 @@ import { SCHEMA_REGISTRY } from "../src/lib/schemas";
  */
 
 const API_DIR = join(process.cwd(), "src", "app", "api");
+const V1_DIR = join(process.cwd(), "src", "app", "v1");
 
 function walk(dir: string): string[] {
   const out: string[] = [];
+  if (!existsSync(dir)) return out;
   for (const entry of readdirSync(dir)) {
     const full = join(dir, entry);
     if (statSync(full).isDirectory()) out.push(...walk(full));
@@ -50,7 +52,7 @@ for (const [name, schema] of Object.entries(SCHEMA_REGISTRY)) {
 
 // A route must not define its own object schema: that is how unclassified
 // fields get in.
-for (const file of walk(API_DIR)) {
+for (const file of [...walk(API_DIR), ...walk(V1_DIR)]) {
   const source = readFileSync(file, "utf8");
   const lines = source.split("\n");
   lines.forEach((line, index) => {

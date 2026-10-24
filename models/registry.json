@@ -1,0 +1,353 @@
+{
+  "registryVersion": "1.0",
+  "updatedAt": "2026-10-24",
+  "note": "Model inventory for Shield (13, section 7). Every entry names the code constant that carries its version, so a version in this file can always be traced back to a line in the source. The sandbox runs scripted detectors: nothing here has been independently validated.",
+  "models": [
+    {
+      "id": "d1ElevenLabs",
+      "kind": "detector",
+      "purpose": "Provider-scoped synthetic-voice detector: the ElevenLabs speech classifier (D1).",
+      "tier": "high",
+      "owner": "Model risk owner",
+      "version": "2026.09.1",
+      "versionSource": {
+        "file": "src/lib/shield-engine.ts",
+        "constant": "MODEL_VERSIONS.d1ElevenLabs"
+      },
+      "intendedUse": "Reads a user-submitted voice note and reports whether the ElevenLabs classifier thinks the clip is synthetic. It is one input to rule pack 2, which decides the verdict. D1 is provider-scoped: a not-ElevenLabs answer is never counted as evidence that the voice is human.",
+      "knownLimits": [
+        "Provider-scoped only: it says something about ElevenLabs-generated audio, not about synthetic audio in general.",
+        "It cannot clear a clip. On its own it raises the verdict to Caution at most.",
+        "It reports a flag, not a probability, and carries no confidence score.",
+        "In this build it is a scripted stand-in, so it says nothing about real detection quality.",
+        "Its output leaves the cell, so it can only be switched on per market once the transfer is approved."
+      ],
+      "validation": "Not independently validated. In this build D1 is scripted: assessVoice derives a deterministic flag from a seeded hash of the clip name and size, or from a fixed preset table for the three sample clips. No third party has tested it, no slice analysis has been run, and no drift monitoring exists here. The demo shows how the pipeline reacts to a detector output; it is not evidence about real synthetic-voice detection.",
+      "monitoringThreshold": "Monitored signal: how often D1 disagrees with the two general detectors (D2 and D3) on the same clip. A sustained rise above the release baseline opens a model-risk review, and any slice (language, device) sitting more than 5 points below the overall rate is reviewed separately. Nothing is monitored in this build, because the detector is scripted.",
+      "fallback": "If D1 is unreachable or answers unknown, the engine refuses to clear: the clip is Inconclusive and the action is step_up. A detector failure in this build returns HTTP 503 SH-DEGRADED-503 with safeAction step_up (13, F-1).",
+      "retirementPlan": "The D1 version is pinned in MODEL_VERSIONS and written into every audit entry, so a past decision can be replayed against the exact version that produced it. A retired version stays replayable: the new version runs in parallel for two releases before the old one leaves MODEL_VERSIONS, and the retirement is minuted by the model-risk committee.",
+      "dataClass": "C4",
+      "notToBeUsedFor": [
+        "Deciding who a speaker is, or whether a person is real.",
+        "Producing a Danger verdict on its own.",
+        "Judging a person by their voice.",
+        "Any use outside the voice-note and live-call paths."
+      ]
+    },
+    {
+      "id": "d2Vendor",
+      "kind": "detector",
+      "purpose": "General synthetic-voice detector supplied by the commercial vendor (D2).",
+      "tier": "high",
+      "owner": "Model risk owner",
+      "version": "2026.09.1",
+      "versionSource": {
+        "file": "src/lib/shield-engine.ts",
+        "constant": "MODEL_VERSIONS.d2Vendor"
+      },
+      "intendedUse": "Reads a user-submitted voice note and reports whether the vendor classifier thinks the clip is synthetic. Together with D3 it forms the two general detectors that rule pack 2 requires to agree before Danger.",
+      "knownLimits": [
+        "A single general-detector flag reaches Caution, never Danger; two general detectors must agree.",
+        "Codec laundering and re-encoding degrade vendor classifiers, and this build runs no such test.",
+        "It reports a flag only, with no score and no slice information.",
+        "In this build it is a scripted stand-in, so it says nothing about real detection quality."
+      ],
+      "validation": "Not independently validated. In this build D2 is scripted: assessVoice derives a deterministic flag from a seeded hash of the clip name and size, or from a fixed preset table for the three sample clips. No vendor benchmark, slice analysis, adversarial test or drift monitoring has been run here.",
+      "monitoringThreshold": "Monitored signal: agreement with D3 on the same clip, and the share of clips where D2 alone raises the verdict to Caution. A fall in agreement below the release baseline opens a model-risk review. Nothing is monitored in this build, because the detector is scripted.",
+      "fallback": "Same as the other detectors: an unreachable or unknown D2 leaves the clip Inconclusive with step_up, and a detector failure returns HTTP 503 SH-DEGRADED-503 (13, F-1).",
+      "retirementPlan": "The D2 version is pinned in MODEL_VERSIONS and written into every audit entry, so a past decision can be replayed against the exact version that produced it. A new vendor version runs in parallel for two releases before the old one leaves MODEL_VERSIONS, and the retirement is minuted by the model-risk committee.",
+      "dataClass": "C4",
+      "notToBeUsedFor": [
+        "Deciding who a speaker is, or whether a person is real.",
+        "Producing a Danger verdict on its own.",
+        "Judging a person by their voice.",
+        "Any use outside the voice-note and live-call paths."
+      ]
+    },
+    {
+      "id": "d3InHouse",
+      "kind": "detector",
+      "purpose": "In-cell synthetic-voice detector that Shield operates itself (D3).",
+      "tier": "high",
+      "owner": "Model risk owner",
+      "version": "2026.10.2",
+      "versionSource": {
+        "file": "src/lib/shield-engine.ts",
+        "constant": "MODEL_VERSIONS.d3InHouse"
+      },
+      "intendedUse": "Runs inside the cell on a user-submitted voice note and reports whether the clip is synthetic. It is the second general detector, so D2 and D3 must agree before rule pack 2 can return Danger. Because it runs in-cell it keeps the audio inside the country, which is why D1 can be switched off per market.",
+      "knownLimits": [
+        "Two general detectors must agree before Danger, so a miss by both D2 and D3 is the dangerous case.",
+        "It sees only the clip the user submitted; it has no context about the caller or the number.",
+        "It reports a flag only, with no score.",
+        "In this build it is a scripted stand-in, so it says nothing about real detection quality."
+      ],
+      "validation": "Not independently validated. In this build D3 is scripted exactly like D1 and D2: a seeded hash of the clip name and size, or a fixed preset table for the three sample clips. No independent validation, slice analysis or drift monitoring has been done.",
+      "monitoringThreshold": "Monitored signal: the D3 flag rate on in-cell traffic against the release baseline, reviewed per market. A sustained move of more than 10 points opens a model-risk review. Nothing is monitored in this build, because the detector is scripted.",
+      "fallback": "Same as the other detectors: an unreachable or unknown D3 leaves the clip Inconclusive with step_up, and a detector failure returns HTTP 503 SH-DEGRADED-503 (13, F-1).",
+      "retirementPlan": "The D3 version is pinned in MODEL_VERSIONS and written into every audit entry, so a past decision can be replayed against the exact version that produced it. A new in-cell model runs in parallel for two releases before the old one leaves MODEL_VERSIONS, and the retirement is minuted by the model-risk committee.",
+      "dataClass": "C4",
+      "notToBeUsedFor": [
+        "Deciding who a speaker is, or whether a person is real.",
+        "Producing a Danger verdict on its own.",
+        "Judging a person by their voice.",
+        "Any use outside the voice-note and live-call paths."
+      ]
+    },
+    {
+      "id": "rulePack",
+      "kind": "policy",
+      "purpose": "Versioned rule pack that turns signals into a verdict and a recommended action (rule packs 1-3).",
+      "tier": "high",
+      "owner": "Model risk owner",
+      "version": "ug-public-2026.10.2",
+      "versionSource": {
+        "file": "src/lib/shield-engine.ts",
+        "constant": "RULE_PACK_VERSION",
+        "note": "The same constant is MODEL_VERSIONS.rulePack, so every decision names the pack that produced it."
+      },
+      "intendedUse": "Consumes telco, reputation, verified-call, detector and liveness signals and returns the verdict, the reason codes and the recommended action. It is the only thing that decides: models never sit in a decision path. Its version is written into every evidence entry, so a decision can be replayed against the exact pack that produced it.",
+      "knownLimits": [
+        "It fails toward verification: an unknown signal can never produce Clear, so a degraded telco produces Inconclusive rather than a reassurance.",
+        "No single signal can clear or condemn a number.",
+        "Public copy is plain language only: no scores, no jargon, no certainty claims.",
+        "It cannot know who the caller is, only what the signals say.",
+        "A pack is written for one market and language set; it is not a general-purpose fraud engine."
+      ],
+      "validation": "Not independently validated. What has been done here: deterministic unit tests over the engine invariants in tests/engine.test.ts (an unknown signal never yields Clear, the story signal can never produce Clear, reputation needs independent reporters), plus a hash-chained evidence record of every decision in src/lib/audit.ts that scripts/shield-verify.ts can re-verify independently. The backtests and four-eyes activation the spec requires have not been run, and the work was done by the people who built the pack.",
+      "monitoringThreshold": "Monitored signal: the verdict and reason mix per cell, and above all the share of Inconclusive outcomes, which must not rise without a documented telco or provider incident. The pack is versioned by RULE_PACK_VERSION, so every evidence entry names the pack that produced it.",
+      "fallback": "The floor rule is the fallback: missing or unknown evidence can never produce Clear (F-1, F-4), so the pack degrades to Inconclusive with step_up. New packs activate on four eyes, so an unactivated pack leaves the previous pack in force.",
+      "retirementPlan": "The pack version is stamped into every audit entry and into each decision as policyVersion. A retired pack stays replayable for the 13-month decision retention window; the replacement runs in parallel for two releases before the old version is retired, and the retirement is minuted by the model-risk committee.",
+      "dataClass": "C3",
+      "notToBeUsedFor": [
+        "Legal, credit or disciplinary decisions about a person.",
+        "Publishing a list of numbers as scammers.",
+        "Deciding a case without a human release path and an appeal.",
+        "Anything outside the documented rule packs."
+      ]
+    },
+    {
+      "id": "livenessScoring",
+      "kind": "scoring",
+      "purpose": "Scores the Guardian answer window: response latency and repeat accuracy.",
+      "tier": "high",
+      "owner": "Model risk owner",
+      "version": "ug-public-2026.10.2",
+      "versionSource": {
+        "file": "src/lib/shield-engine.ts",
+        "constant": "RULE_PACK_VERSION",
+        "note": "Liveness is rule pack 3 of the same pack that consumes its result, so it carries the pack version."
+      },
+      "intendedUse": "Runs on the challenge window after the Guardian agent asks the caller to repeat three random words and a number. It reads the response latency and the repeat accuracy and returns the signals the engine turns into a verdict. The agent never sees the score and never words the verdict.",
+      "knownLimits": [
+        "It measures the answer window only, so it says nothing about the rest of the call.",
+        "A caller who hangs up at disclosure is Caution, never Danger on its own.",
+        "Per-language calibration has not been done, so accuracy is not claimed for any language yet.",
+        "A slow network can look like a slow speaker.",
+        "It needs three easy words plus a number; a caller who does not hear or repeat them cannot be scored."
+      ],
+      "validation": "Not independently validated. In this build the score is scripted: assessGuardian returns one of four fixed outcomes (real_relative, realtime_clone, tts_operator, caller_left) with fixed latencies between 1180 ms and 1420 ms, and the scenario comes from a server-side session the client cannot overwrite. No audio is scored, no per-language calibration has been run and no bias review has been done.",
+      "monitoringThreshold": "Monitored signal: the latency distribution and the repeat accuracy per language (en, sw, lg), plus the rate of sessions where the caller left at disclosure. Before any market launch, repeat accuracy must be calibrated per language, and a language whose accuracy sits more than 5 points below the overall rate is held back.",
+      "fallback": "If the window cannot be scored, because there is no media fork, the session has expired or the store is unreachable, the outcome is Inconclusive with step_up and the user is told to call back on a number they saved. A session that has already been scored replays the committed result instead of producing a new verdict.",
+      "retirementPlan": "The liveness thresholds ship with the rule pack that consumes them (RULE_PACK_VERSION), so a decision names the pack it was scored under. Changing a threshold means a new pack version, which runs in parallel for two releases before the old one is retired.",
+      "dataClass": "C4",
+      "notToBeUsedFor": [
+        "Speaker identification or voiceprint matching.",
+        "Proving that a call was genuine.",
+        "Judging a caller by accent, dialect or language ability.",
+        "Any decision made by the agent."
+      ]
+    },
+    {
+      "id": "reputationScoring",
+      "kind": "scoring",
+      "purpose": "Turns scam reports into a reputation band for a number.",
+      "tier": "high",
+      "owner": "Model risk owner",
+      "version": "ug-public-2026.10.2",
+      "versionSource": {
+        "file": "src/lib/shield-engine.ts",
+        "constant": "RULE_PACK_VERSION",
+        "note": "reputationBand is part of rule pack 1, so it carries the pack version."
+      },
+      "intendedUse": "Counts independent reporters against a number over 14 days and returns the band clean, elevated or high. Three independent reporters label a number as reported, which is Caution; five condemn it, which is Danger. One reporter never condemns a number on its own.",
+      "knownLimits": [
+        "It counts independent reporters, so a mass-reporting campaign against a rival's number can still poison it; linkage analysis and decay are not implemented here.",
+        "The public lookup returns a band and never a count, so the count cannot be used to enumerate reports.",
+        "A number with no reports is not clean: an unknown reputation blocks a Clear verdict.",
+        "The band says something about reports, not about the person who uses the number.",
+        "The report count is stored per number, so a shared business line carries the reports of its users."
+      ],
+      "validation": "Not independently validated. The bands are exercised by unit tests in tests/engine.test.ts and by the reports and appeals endpoints, but the poisoning red team and the appeals analysis the spec requires have not been run in this build.",
+      "monitoringThreshold": "Monitored signal: the rate of band changes after an appeal, and the share of numbers that reach the Danger band in each cell. A rise in the appeal overturn rate above the release baseline opens a model-risk review.",
+      "fallback": "If the report store cannot be read, the public lookup returns HTTP 503 SH-DEGRADED-503 with step_up. The number is never treated as clean because the data could not be read.",
+      "retirementPlan": "The bands are fixed in the rule pack (RULE_PACK_VERSION) and are stamped into every decision that used them. A band change means a new pack version, with two releases of parallel running before the old pack is retired.",
+      "dataClass": "C3",
+      "notToBeUsedFor": [
+        "Publishing individual numbers or raw report counts.",
+        "Labelling a number as a scammer on the strength of one report.",
+        "Deciding guilt, or anything about the person who owns the number.",
+        "Anything that does not go through the appeal path."
+      ]
+    },
+    {
+      "id": "storyPressureClassifier",
+      "kind": "classifier",
+      "purpose": "Reads the story in a voice note or call: urgency, secrecy, a one-time code, a payment redirect or a new-number request.",
+      "tier": "medium",
+      "owner": "Model risk owner",
+      "version": "ug-public-2026.10.2",
+      "versionSource": {
+        "file": "src/lib/shield-engine.ts",
+        "constant": "RULE_PACK_VERSION",
+        "note": "The cue set is rule pack 2, so it carries the pack version."
+      },
+      "intendedUse": "Adds risk signals to the other detectors. It can only ever add risk: the cue list can push a clip up to Caution or complete a Danger, but it can never produce Clear on its own. Rule pack 2 requires two general detectors to agree before Danger.",
+      "knownLimits": [
+        "It measures pressure in the story, not whether the story is true.",
+        "A legitimate urgent call can look pressured.",
+        "It is not a sentiment or intent model and must not be read as one.",
+        "It reads the script, not the speaker, so it says nothing about who is talking.",
+        "In this build the cue count comes from the same seeded hash as the detector flags."
+      ],
+      "validation": "Not independently validated. In this build the cue list is derived from the same seeded hash that drives the detector flags, so it shows how cues combine with detectors, not how well cues are recognised. The precision review the spec requires has not been done.",
+      "monitoringThreshold": "Monitored signal: the precision of the cues that raise a clip to Caution or complete a Danger, reviewed against a labelled set. Any change that lets the classifier produce Clear is a release blocker, because it would break the rule that the story can only add risk.",
+      "fallback": "The classifier has no verdict of its own, so it needs no verdict fallback. If the cue signal is missing, the cue list is empty and the detectors decide alone; a single detector flag can still only reach Caution.",
+      "retirementPlan": "The cue set ships with the rule pack (RULE_PACK_VERSION) and is stamped into every decision that used it. A changed cue set means a new pack version, run in parallel for two releases before the old pack is retired.",
+      "dataClass": "C3",
+      "notToBeUsedFor": [
+        "Judging whether a story is true.",
+        "Profiling a caller's accent, dialect or language.",
+        "Producing a Clear verdict.",
+        "Replacing a human review of a disputed label."
+      ]
+    },
+    {
+      "id": "scamWaveClustering",
+      "kind": "scoring",
+      "purpose": "Detects a surge of scam activity in a cell and raises the operating mode.",
+      "tier": "medium",
+      "owner": "Model risk owner",
+      "version": "ug-public-2026.10.3",
+      "versionSource": {
+        "file": "src/lib/audit.ts",
+        "constant": "POLICY_VERSION",
+        "note": "The thresholds live in src/lib/mode.ts; the mode changes they cause are recorded in the evidence chain under this policy version."
+      },
+      "intendedUse": "Counts the Danger decisions in a rolling hour and, when the count crosses the threshold, puts the cell into SURGE so that the mode header and the site say so loudly. It also raises TELCO_DEGRADED when a high share of number checks cannot read the operator. The mode is derived from live traffic, never hardcoded.",
+      "knownLimits": [
+        "In this build it is a threshold count, not clustering: there is no per-market wave taxonomy and no grouping of related numbers.",
+        "It says nothing about who the scammers are.",
+        "A wave raises caution; it never relaxes the caution floor.",
+        "The counts come from the evidence store, so a store outage looks like no wave."
+      ],
+      "validation": "Not independently validated. The sandbox counts Danger decisions in the evidence store to raise SURGE, and the mode is exercised by the mode endpoint and the chain tests, but there is no clustering, no analyst review of clusters and no evaluation against a labelled scam wave.",
+      "monitoringThreshold": "Monitored signal: the Danger-decision count in the rolling hour and the share of number checks that carry TELCO_UNKNOWN in 30 s. SURGE is raised at 5 Danger decisions in 1 h, and TELCO_DEGRADED when 20% or more of number checks in 30 s carry TELCO_UNKNOWN.",
+      "fallback": "If the evidence store is unreachable, the cell mode is DEGRADED rather than NORMAL and every recent result is treated as unverified. The mode is never quietly reported as normal (05, F-10).",
+      "retirementPlan": "The thresholds ship with the cell build, and the mode changes they cause are recorded in the evidence chain under the chain policy version (POLICY_VERSION). Changing a threshold means a new release; the previous thresholds stay readable so past mode entries still verify.",
+      "dataClass": "C3",
+      "notToBeUsedFor": [
+        "Identifying individual scammers.",
+        "Turning a wave into a public list of numbers.",
+        "Relaxing the caution floor or the Inconclusive rule.",
+        "Replacing analyst review of a suspected wave."
+      ]
+    },
+    {
+      "id": "guardianAgent",
+      "kind": "agent",
+      "purpose": "The voice agent that joins a live call, discloses itself and asks the liveness challenge.",
+      "tier": "medium",
+      "owner": "Safety lead",
+      "version": "ug-public-2026.10.2",
+      "versionSource": {
+        "file": "src/lib/shield-engine.ts",
+        "constant": "RULE_PACK_VERSION",
+        "note": "The agent script (GUARDIAN_SCRIPT) and the challenge-word picker ship with the pack that scores its session."
+      },
+      "intendedUse": "Runs the challenge during a live call: it discloses that it is Shield, asks the caller to repeat three random words and a number, and leaves. The server picks the challenge words and the scenario, so the caller cannot choose either. The agent never learns the verdict and never words it; the result reaches the user privately.",
+      "knownLimits": [
+        "It can only run the challenge; it holds no decision power and no knowledge of the verdict.",
+        "Its words are a fixed template per language (en, sw, lg); there is no free-form conversation in this build.",
+        "It cannot help a caller who does not speak one of the three languages.",
+        "The caller may hang up at disclosure, which is Caution and never Danger on its own.",
+        "It never records the call: only the outcome is stored."
+      ],
+      "validation": "Not independently validated. The agent's lines are a fixed template (GUARDIAN_SCRIPT) and its challenge words are picked server-side; the agent process itself does not run in this build. There is no agent red team, no evaluation set and no faithfulness evaluation. What is tested here is the engine that scores the session, in tests/engine.test.ts, and the rule that the scenario is server-owned.",
+      "monitoringThreshold": "Monitored signal: the share of sessions whose outcome came from the media fork rather than the sandbox demo, and the rate of CALLER_LEFT outcomes per market. Before any market launch, the guardrail refusal rate and the rate of answers containing a number that is not in the registry are reviewed.",
+      "fallback": "The agent holds no decision power, so it cannot produce a wrong verdict. If a session cannot be completed or its result cannot be committed, the user is told the call is unverified and to call back on a number they saved, and the endpoint returns HTTP 503 SH-DEGRADED-503 (13, G-4).",
+      "retirementPlan": "The agent script and challenge-word picker ship with the rule pack (RULE_PACK_VERSION), so a session names the pack it ran under. A changed script means a new pack version, run in parallel for two releases before the old one is retired, and every past session stays replayable.",
+      "dataClass": "C4",
+      "notToBeUsedFor": [
+        "Making or influencing a verdict.",
+        "Giving legal, financial or medical advice.",
+        "Collecting, repeating or asking for a PIN, one-time code or password.",
+        "Calling anyone: Shield never calls you first."
+      ]
+    },
+    {
+      "id": "helperAgent",
+      "kind": "agent",
+      "purpose": "The chat assistant that answers a person's questions about a call or a number.",
+      "tier": "medium",
+      "owner": "Safety lead",
+      "version": "ug-public-2026.10.2",
+      "versionSource": {
+        "file": "src/lib/shield-engine.ts",
+        "constant": "RULE_PACK_VERSION",
+        "note": "Catalogued, not deployed: there is no Helper runtime in this build, so no version of its own is stamped anywhere. It is registered under the policy pack it would have to run under."
+      },
+      "intendedUse": "Answers the user's question in plain language, in the user's language, using the reviewed knowledge base and the templated wording. It has no decision power: it explains what Shield found, and the verdict itself always comes from the engine.",
+      "knownLimits": [
+        "Catalogued but not deployed in this build: there is no Helper runtime, so none of these limits have been measured.",
+        "It cannot see a verdict the user has not been shown.",
+        "It never gives legal or financial advice.",
+        "It only quotes numbers that exist in the official registry.",
+        "It must not hold a decision power of its own, so it can only add risk, never clear."
+      ],
+      "validation": "Not validated and not deployed. There is no Helper runtime in this build, only a catalogue entry, so there is no evaluation set, no red team and no guardrail test results. Nothing about the Helper has been tested, and nothing in this card should be read as evidence that it works.",
+      "monitoringThreshold": "Not deployed in this build, so nothing is monitored. Before any market launch: the share of answers that contain a number that is not in the registry, and the rate of guardrail refusals, are reviewed monthly.",
+      "fallback": "The agent has no decision power, so it cannot produce a wrong verdict. If it cannot answer, it says so and points to the templated verdict wording and the official channels.",
+      "retirementPlan": "Catalogued, not deployed. When it is deployed it will be versioned with the policy pack it runs under (RULE_PACK_VERSION) and will keep its own versioned prompt set, retired in parallel with the pack that governs it.",
+      "dataClass": "C3",
+      "notToBeUsedFor": [
+        "Making or influencing a verdict.",
+        "Giving legal, financial or medical advice.",
+        "Quoting a number that is not in the official registry.",
+        "Replacing the reviewed knowledge base."
+      ]
+    },
+    {
+      "id": "consoleCopilotAgent",
+      "kind": "agent",
+      "purpose": "The assistant that helps a bank analyst work through cases in the console.",
+      "tier": "medium",
+      "owner": "Safety lead",
+      "version": "ug-public-2026.10.2",
+      "versionSource": {
+        "file": "src/lib/shield-engine.ts",
+        "constant": "RULE_PACK_VERSION",
+        "note": "Catalogued, not deployed: there is no Copilot runtime in this build, so no version of its own is stamped anywhere. It is registered under the policy pack it would have to run under."
+      },
+      "intendedUse": "Summarises cases, explains scam waves and drafts policy changes for a human to approve. It writes drafts only: four eyes applies, so no release ever happens on the copilot's word.",
+      "knownLimits": [
+        "Catalogued but not deployed in this build: there is no Copilot runtime, so none of these limits have been measured.",
+        "It drafts; it never releases a hold or approves a label.",
+        "It works only inside a tenant, with tenant-scoped retrieval and no cross-tenant search.",
+        "It must never see a raw phone number: staff see masked numbers.",
+        "It has no state-changing tools, so it cannot act on a case."
+      ],
+      "validation": "Not validated and not deployed. There is no Copilot runtime in this build, only a catalogue entry, so there is no approval-sampling data, no faithfulness evaluation and no red team. Nothing about the copilot has been tested.",
+      "monitoringThreshold": "Not deployed in this build, so nothing is monitored. Before any market launch: the share of drafts a human approver changed before release, and the rate of drafts that cite a number which is not in the registry, are reviewed per tenant.",
+      "fallback": "If the copilot cannot produce a draft, the analyst falls back to the console's own case views. It never has an approval path of its own, so a copilot failure cannot release a hold.",
+      "retirementPlan": "Catalogued, not deployed. When it is deployed it will be versioned with the policy pack it runs under (RULE_PACK_VERSION), and each prompt-set version is retired only after the drafts it produced have been reviewed.",
+      "dataClass": "C2",
+      "notToBeUsedFor": [
+        "Releasing a hold or approving a label without a human approver.",
+        "Cross-tenant retrieval.",
+        "Showing raw phone numbers.",
+        "Replacing the four-eyes approval path."
+      ]
+    }
+  ]
+}

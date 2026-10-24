@@ -40,7 +40,7 @@ export function VerifiedLookup() {
     setOk(null);
     setMiss(null);
     try {
-      const res = await fetch(`/api/verified-calls?number=${encodeURIComponent(value)}`, { cache: "no-store" });
+      const res = await fetch(`/api/verified-calls/?number=${encodeURIComponent(value)}`, { cache: "no-store" });
       const data = (await res.json()) as LookupOk | LookupMiss;
       if (data.registered) setOk(data);
       else setMiss(data);

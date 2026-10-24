@@ -86,7 +86,7 @@ export function NumberCheck() {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), CLIENT_TIMEOUT_MS);
 
-    const fetchPromise = fetch("/api/assess", {
+    const fetchPromise = fetch("/api/assess/", {
       method: "POST",
       headers: { "Content-Type": "application/json", "Idempotency-Key": "ui-" + Date.now() },
       body: JSON.stringify({ number: numberRaw }),
@@ -155,7 +155,7 @@ export function NumberCheck() {
     if (!result) return;
     setReportState("sending");
     try {
-      const res = await fetch("/api/reports", {
+      const res = await fetch("/api/reports/", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ number: value.replace(/[^\d+]/g, ""), note: "Reported from Shield demo" }),

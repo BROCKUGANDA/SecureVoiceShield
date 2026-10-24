@@ -22,6 +22,8 @@ model Decision {
   signals       String // JSON snapshot (values only, never audio)
   latencyMs     Int      @default(0)
   auditSeq      Int
+  // The tenant that owns this decision in the business tier (17, isolation).
+  tenantId      String?
   policyVersion String   @default("ug-public-2026.10.2")
   expiresAt     DateTime? // a decision is never reused after this (10, section 2)
   createdAt     DateTime @default(now())
@@ -60,19 +62,109 @@ model OutboxEvent {
   createdAt DateTime @default(now())
 }
 
-// A number owner can challenge a label (13, section 8). The review deadline
-// is 72 hours from the appeal; the label stays visible while it is open.
+// A number owner can challenge a label (13, section 8). The request is only
+// filed once possession of the number is proven; the review deadline runs
+// from the moment it is verified.
 model Appeal {
-  id             String   @id @default(cuid())
-  numberHash     String
-  reason         String
-  status         String   @default("open") // open | upheld | rejected
-  decision       String? // upheld | rejected — the outcome of the review
-  reviewDeadline DateTime
-  createdAt      DateTime @default(now())
-  decidedAt      DateTime?
+  id                    String    @id @default(cuid())
+  numberHash            String
+  reason                String
+  status                String    @default("pending_verification") // pending_verification | open | upheld | rejected
+  decision              String? // upheld | rejected — the outcome of the review
+  verificationCode      String?
+  verificationExpiresAt DateTime?
+  verificationAttempts  Int       @default(0)
+  requiresExtraCheck    Boolean   @default(false)
+  reviewDeadline        DateTime
+  createdAt             DateTime  @default(now())
+  verifiedAt            DateTime?
+  decidedAt             DateTime?
 
   @@index([numberHash])
+}
+
+// A sealed segment of the audit chain (13, section 6.2; 09, rule T-10).
+//
+// The chain head is time-stamped daily by two independent RFC 3161
+// authorities in production. This build has no time-stamping authority, so
+// the anchor is signed by the cell's own key and the record says which
+// authority it carries — an auditor can tell the two apart.
+model ChainAnchor {
+  id            String   @id @default(cuid())
+  cell          String   @default("ug")
+  upToSeq       Int
+  headHash      String
+  segmentDigest String
+  authority     String   @default("cell-key")
+  signature     String?
+  prevAnchorHash String?
+  anchorHash    String
+  createdAt     DateTime @default(now())
+
+  @@index([cell, upToSeq])
+}
+
+// A tenant is a bank or telco with business-API access. Credentials are
+// OAuth 2.0 client credentials with private_key_jwt, and the access token
+// is bound to the client's mTLS certificate (17, 12).
+model Tenant {
+  id                     String   @id @default(cuid())
+  name                   String
+  clientId               String   @unique
+  status                 String   @default("active")
+  // The client's public keys (JWKS), as JSON.
+  jwks                   String
+  // RFC 8705 binding: the thumbprint of the client's mTLS certificate.
+  certificateThumbprint String?
+  // Comma-separated scopes.
+  scopes                 String   @default("assess:read")
+  policyVersion          String   @default("ug-banking-2026.10.1")
+  createdAt              DateTime @default(now())
+}
+
+// A tenant's own label for a decision (13, section 5.3). Unlabelled
+// decisions count as unknown, never as genuine.
+model Outcome {
+  id            String   @id @default(cuid())
+  tenantId      String
+  decisionId    String
+  outcome       String // fraud_confirmed | genuine | unknown
+  fraudType     String?
+  lossAmountMinor Int?
+  lossCurrency  String?
+  confirmedAt   DateTime?
+  createdAt     DateTime @default(now())
+
+  @@unique([tenantId, decisionId])
+  @@index([tenantId, createdAt])
+}
+
+// A signed evidence pack for a dispute, a complaint or a regulator
+// (13, section 6.3). The pack itself lives in short-lived object storage.
+model EvidencePack {
+  id           String   @id @default(cuid())
+  tenantId     String
+  decisionId   String
+  objectHandle String
+  digest       String
+  signature    String?
+  createdAt    DateTime @default(now())
+  expiresAt    DateTime
+
+  @@index([tenantId, createdAt])
+}
+
+// Short-lived objects handed out by signed link — evidence packs, exports.
+model StoredObject {
+  handle     String    @id
+  objectKey  String
+  value      String
+  digest     String
+  expiresAt  DateTime
+  redeemedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([expiresAt])
 }
 
 // A confirmed scam report. One row per independent reporter per number, so

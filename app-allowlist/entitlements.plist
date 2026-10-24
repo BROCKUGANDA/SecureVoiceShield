@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Shield entitlements (14, section 10.3).
+
+  Associated domains only: Universal Links into the app and shared web
+  credentials for shield.securevoiceai.me. The Apple Team ID is a deployment
+  fact and is not in this repository; the app-site-association route
+  (src/app/.well-known/apple-app-site-association/route.ts) answers 503
+  until it is configured, rather than publishing a made-up team id.
+
+  No push entitlement key and no iCloud or HealthKit container: push uses the
+  APNs capability from the app target, not an entitlement file.
+-->
+<plist version="1.0">
+<dict>
+    <key>com.apple.developer.associated-domains</key>
+    <array>
+        <string>applinks:shield.securevoiceai.me</string>
+        <string>webcredentials:shield.securevoiceai.me</string>
+    </array>
+</dict>
+</plist>

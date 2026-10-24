@@ -4,17 +4,23 @@
   "private": true,
   "scripts": {
     "dev": "next dev -p 3000 2>&1 | tee dev.log",
-    "build": "bun run check:data-class && next build && node scripts/copy-standalone.mjs",
+    "build": "bun run check:data-class && bun run check:app-manifest && bun run check:model-registry && bun run check:ports && bun run check:hreflang && next build && node scripts/copy-standalone.mjs",
     "start": "NODE_ENV=production bun .next/standalone/server.js 2>&1 | tee server.log",
     "lint": "eslint .",
     "test": "bun test",
     "check:data-class": "bun scripts/check-data-class.ts",
+    "check:model-registry": "bun scripts/check-model-registry.ts",
+    "check:app-manifest": "bun scripts/check-app-manifest.ts",
+    "check:ports": "bun scripts/check-ports.ts",
+    "check:hreflang": "bun scripts/check-hreflang.ts",
     "shield-verify": "bun scripts/shield-verify.ts",
+    "seed:tenant": "bun scripts/seed-tenant.ts",
     "keygen": "bun scripts/generate-signing-key.ts",
     "db:push": "prisma db push --accept-data-loss",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
-    "db:reset": "prisma migrate reset"
+    "db:reset": "prisma migrate reset",
+    "shield-certify": "bun scripts/shield-certify.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

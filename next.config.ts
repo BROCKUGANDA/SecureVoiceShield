@@ -36,6 +36,11 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
   reactStrictMode: true,
   allowedDevOrigins: ["*.space-z.ai"],
+  // The locale paths carry a trailing slash (14, section 2): /en-ae/, /sw-tz/
+  // and the rest. Trailing slashes are the canonical form, so the canonical
+  // link, the hreflang set and the sitemap all point at the URL that is
+  // actually served.
+  trailingSlash: true,
   async headers() {
     return [
       { source: "/(.*)", headers: securityHeaders },

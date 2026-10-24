@@ -59,3 +59,6 @@ prompt
 server.log
 # Skills directory
 /skills/
+
+# sealed audit anchors — the append-only store (a runtime artifact)
+evidence/
