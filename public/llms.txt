@@ -11,10 +11,10 @@ Shield never calls you first. Never share a PIN, password or one-time code with 
 - Status: https://status.shield.securevoiceai.me
 
 ## Key pages
-- /{locale}/ — home and number check
-- /{locale}/learn/ — safety lessons
-- /{locale}/official-channels/ — verified contact list
-- /{locale}/alerts/ — active scam alerts
+- [Home](https://shield.securevoiceai.me/) — home and number check
+- [Learn](https://shield.securevoiceai.me/en-ug/learn/) — safety lessons
+- [Official channels](https://shield.securevoiceai.me/en-ug/official-channels/) — verified contact list
+- [Alerts](https://shield.securevoiceai.me/en-ug/alerts/) — active scam alerts
 
 ## Locales
 en-AE, ar-AE, hi-AE, ur-AE, en-KE, sw-KE, en-UG, lg-UG, sw-UG, en-TZ, sw-TZ
