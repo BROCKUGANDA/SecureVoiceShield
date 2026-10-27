@@ -35,7 +35,9 @@ export interface ThrottleConfig {
 export class TokenBucket {
   private tokens: number;
   private lastRefill: number;
-  constructor(private config: ThrottleConfig) {
+  private config: ThrottleConfig;
+  constructor(config: ThrottleConfig) {
+    this.config = config;
     this.tokens = config.capacity;
     this.lastRefill = Date.now();
   }
@@ -43,7 +45,7 @@ export class TokenBucket {
   consume(n = 1): boolean {
     const now = Date.now();
     const elapsed = (now - this.lastRefill) / 1000;
-    this.tokens = Math.min(this.config.capacity, this.tokens + elapsed * this.refillRate);
+    this.tokens = Math.min(this.config.capacity, this.tokens + elapsed * this.config.refillRate);
     this.lastRefill = now;
     if (this.tokens >= n) { this.tokens -= n; return true; }
     return false;
