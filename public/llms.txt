@@ -1,0 +1,26 @@
+# SecureVoice Shield
+
+> SecureVoice Shield is a fraud-prevention platform that helps people and banks verify calls, numbers and voice notes. It never claims a voice is definitely real.
+
+## Golden rule
+Shield never calls you first. Never share a PIN, password or one-time code with anyone, including anyone claiming to be Shield.
+
+## Official channels
+- Website: https://shield.securevoiceai.me
+- Docs: https://docs.shield.securevoiceai.me
+- Status: https://status.shield.securevoiceai.me
+
+## Key pages
+- /{locale}/ — home and number check
+- /{locale}/learn/ — safety lessons
+- /{locale}/official-channels/ — verified contact list
+- /{locale}/alerts/ — active scam alerts
+
+## Locales
+en-AE, ar-AE, hi-AE, ur-AE, en-KE, sw-KE, en-UG, lg-UG, sw-UG, en-TZ, sw-TZ
+
+## What Shield never does
+- Never calls you first
+- Never asks for a PIN, OTP or password
+- Never asks you to send money
+- Never sends links by SMS
