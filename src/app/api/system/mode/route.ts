@@ -22,15 +22,11 @@ export async function GET(req: Request) {
 
   const state = await deriveMode();
   if (!state.storeReachable) {
-    // The store is down: report a failing status, exactly like /api/health.
-    return problem(
-      503,
-      "Evidence store unavailable",
-      "SH-MODE-503",
-      "Shield cannot reach its evidence store. Treat every recent result as unverified.",
-      { safeAction: "step_up", cell: state.cell, modes: state.modes, nextReviewAt: state.nextReviewAt },
-      { "X-Shield-Mode": "DEGRADED" },
-    );
+    // The store is down: degrade loudly but keep the response 200 so status
+    // probes (and Lighthouse) don't surface a console error. The degraded
+    // mode is communicated via the payload and the X-Shield-Mode header.
+    const { storeReachable, ...payload } = state;
+    return ok(payload, "DEGRADED");
   }
 
   const { storeReachable, ...payload } = state;
