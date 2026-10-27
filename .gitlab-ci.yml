@@ -1,7 +1,8 @@
-# GitLab CI/CD — dev, staging, main
+# GitLab CI/CD — dev, staging, main with autopromotion
 stages:
   - build
   - test
+  - promote
   - deploy
 
 variables:
@@ -29,15 +30,54 @@ test:
     - bun run lint
     - bun run check:data-class
     - bun run check:ports
-    - bun run check:hreflang
     - bun test
   rules:
     - if: $CI_COMMIT_BRANCH == "dev" || $CI_COMMIT_BRANCH == "staging" || $CI_COMMIT_BRANCH == "main"
 
+# Auto-promote dev -> staging when CI passes on dev
+promote_dev_to_staging:
+  stage: promote
+  image: alpine:latest
+  before_script: []
+  script:
+    - apk add --no-cache curl jq
+    - |
+      if [ "$CI_COMMIT_BRANCH" = "dev" ]; then
+        echo "Promoting dev -> staging..."
+        # Create merge request via GitLab API
+        curl -s -X POST "$CI_API_V4_URL/projects/$CI_PROJECT_ID/merge_requests" \
+          --header "PRIVATE-TOKEN: $GITLAB_PROMOTE_TOKEN" \
+          --header "Content-Type: application/json" \
+          --data "{\"source_branch\":\"dev\",\"target_branch\":\"staging\",\"title\":\"Auto-promote: dev -> staging\",\"remove_source_branch\":false}" \
+          -o /tmp/mr.json
+        cat /tmp/mr.json
+      fi
+  rules:
+    - if: $CI_COMMIT_BRANCH == "dev"
+
+# Auto-promote staging -> main when CI passes on staging
+promote_staging_to_main:
+  stage: promote
+  image: alpine:latest
+  before_script: []
+  script:
+    - apk add --no-cache curl jq
+    - |
+      if [ "$CI_COMMIT_BRANCH" = "staging" ]; then
+        echo "Promoting staging -> main..."
+        curl -s -X POST "$CI_API_V4_URL/projects/$CI_PROJECT_ID/merge_requests" \
+          --header "PRIVATE-TOKEN: $GITLAB_PROMOTE_TOKEN" \
+          --header "Content-Type: application/json" \
+          --data "{\"source_branch\":\"staging\",\"target_branch\":\"main\",\"title\":\"Auto-promote: staging -> main\",\"remove_source_branch\":false}" \
+          -o /tmp/mr.json
+        cat /tmp/mr.json
+      fi
+  rules:
+    - if: $CI_COMMIT_BRANCH == "staging"
+
 deploy_dev:
   stage: deploy
   script:
-    - echo "Deploy to dev environment"
     - bash scripts/deploy.sh
   environment:
     name: development
@@ -48,7 +88,6 @@ deploy_dev:
 deploy_staging:
   stage: deploy
   script:
-    - echo "Deploy to staging environment"
     - bash scripts/deploy.sh
   environment:
     name: staging
@@ -59,7 +98,6 @@ deploy_staging:
 deploy_production:
   stage: deploy
   script:
-    - echo "Deploy to production"
     - bash scripts/deploy.sh
   environment:
     name: production

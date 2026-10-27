@@ -1,0 +1,65 @@
+name: Auto-Promote
+
+on:
+  push:
+    branches: [dev, staging]
+  pull_request:
+    branches: [staging, main]
+    types: [closed]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  promote_dev_to_staging:
+    name: Promote dev -> staging
+    if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create PR dev -> staging
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: auto-promote/dev-to-staging
+          base: staging
+          title: "Auto-promote: dev -> staging"
+          body: |
+            Automated promotion from `dev` to `staging`.
+            Triggered by push to `dev`.
+          labels: auto-promote
+
+  promote_staging_to_main:
+    name: Promote staging -> main
+    if: github.event_name == 'push' && github.ref == 'refs/heads/staging'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create PR staging -> main
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: auto-promote/staging-to-main
+          base: main
+          title: "Auto-promote: staging -> main"
+          body: |
+            Automated promotion from `staging` to `main`.
+            Triggered by push to `staging`.
+          labels: auto-promote
+
+  auto_merge_approved:
+    name: Auto-merge approved promotions
+    if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Log promotion
+        run: echo "PR #${{ github.event.pull_request.number }} merged into ${{ github.event.pull_request.base.ref }}"
