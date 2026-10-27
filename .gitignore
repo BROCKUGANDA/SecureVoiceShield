@@ -62,3 +62,11 @@ server.log
 
 # sealed audit anchors — the append-only store (a runtime artifact)
 evidence/
+
+# dev artifacts
+tool-results/
+upload/Pasted Content*
+*.tsbuildinfo
+dev.pid
+dev.log
+server.log
