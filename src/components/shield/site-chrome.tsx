@@ -42,7 +42,7 @@ export function SiteHeader({ d }: { d: Dictionary }) {
   ];
   return (
     <header className="sticky top-0 z-50 border-b border-border/80 bg-background/85 backdrop-blur-md">
-      <div className="relative mx-auto flex h-16 max-w-7xl items-center gap-3 px-4 sm:px-6">
+      <div className="relative mx-auto flex h-16 max-w-7xl items-center gap-4 px-4 sm:px-6 lg:gap-6">
         <Link href="/" className="flex items-center gap-2.5" aria-label={d.nav.homeLabel.text}>
           <span className="grid size-9 place-items-center rounded-xl bg-primary text-primary-foreground shadow-sm">
             <ShieldCheck className="size-5" strokeWidth={2.2} />
