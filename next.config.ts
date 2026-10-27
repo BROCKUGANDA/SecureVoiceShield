@@ -33,6 +33,7 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  serverExternalPackages: ["@prisma/client"],
   poweredByHeader: false,
   reactStrictMode: true,
   allowedDevOrigins: ["*.space-z.ai"],
