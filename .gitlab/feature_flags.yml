@@ -1,0 +1,45 @@
+# GitLab Feature Flags (Unleash-compatible)
+# Managed via GitLab CI/CD > Feature Flags
+# Flags are evaluated at runtime by the app via the GitLab Feature Flags API.
+
+flags:
+  - name: public_verdicts_floor_inconclusive
+    description: "No public Clear verdicts. Danger and Caution can still show. (Kill switch)"
+    type: boolean
+    active: false
+
+  - name: guardian_enabled
+    description: "Enable Live Call Guardian. When off, show Ask-it-yourself."
+    type: boolean
+    active: true
+
+  - name: surge_profile_active
+    description: "Enable surge profile for scam wave response."
+    type: boolean
+    active: false
+
+  - name: new_payee_tighter_thresholds
+    description: "Tighter risk thresholds for new payees (canary)."
+    type: boolean
+    active: false
+
+  - name: kb_pgvector_search
+    description: "Use pgvector for KB semantic search instead of keyword."
+    type: boolean
+    active: true
+
+  - name: onesignal_push
+    description: "Enable OneSignal push notifications."
+    type: boolean
+    active: false
+
+  - name: ab_testing_enabled
+    description: "Enable A/B testing variant assignment."
+    type: boolean
+    active: true
+
+  - name: canary_new_model
+    description: "Canary: route 5% of traffic to new detector model."
+    type: percentage
+    active: false
+    rollout_percentage: 5

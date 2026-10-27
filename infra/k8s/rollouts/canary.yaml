@@ -1,0 +1,79 @@
+# Canary Deployment via Argo Rollouts
+# Gradually shifts traffic: 5% -> 25% -> 50% -> 100%
+# Automatic rollback on error-budget burn.
+
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: shield-canary
+  namespace: shield
+spec:
+  replicas: 5
+  strategy:
+    canary:
+      canaryService: shield-canary-svc
+      stableService: shield-stable-svc
+      trafficRouting:
+        plugins:
+          argoproj-labs/nginx:
+            stableIngress: shield-ingress
+      steps:
+        - setWeight: 5
+        - pause: { duration: 10m }
+        - analysis:
+            templates:
+              - templateName: shield-success-rate
+            args:
+              - name: service-name
+                value: shield-canary-svc
+        - setWeight: 25
+        - pause: { duration: 10m }
+        - analysis:
+            templates:
+              - templateName: shield-success-rate
+        - setWeight: 50
+        - pause: { duration: 10m }
+        - analysis:
+            templates:
+              - templateName: shield-success-rate
+        - setWeight: 100
+      abortScaleDownDelaySeconds: 30
+  selector:
+    matchLabels:
+      app: shield
+  template:
+    metadata:
+      labels:
+        app: shield
+    spec:
+      containers:
+        - name: shield
+          image: registry.gitlab.com/brockuganda/securevoiceshield:latest
+          ports:
+            - containerPort: 3000
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: shield-success-rate
+  namespace: shield
+spec:
+  args:
+    - name: service-name
+  metrics:
+    - name: success-rate
+      interval: 2m
+      successCondition: result[0] >= 0.99
+      failureLimit: 3
+      provider:
+        prometheus:
+          address: http://prometheus.monitoring:9090
+          query: |
+            sum(rate(http_requests_total{service="{{args.service-name}}",status!~"5.."}[2m])) /
+            sum(rate(http_requests_total{service="{{args.service-name}}"}[2m]))

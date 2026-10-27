@@ -1,0 +1,81 @@
+# Blue-Green Deployment for SecureVoice Shield
+# Two identical environments (blue and green). Traffic switches instantly.
+# Rollback = switch back to the previous color.
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: shield-service
+  namespace: shield
+spec:
+  selector:
+    app: shield
+    version: blue   # switch to "green" to promote
+  ports:
+    - port: 80
+      targetPort: 3000
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: shield-blue
+  namespace: shield
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: shield
+      version: blue
+  template:
+    metadata:
+      labels:
+        app: shield
+        version: blue
+    spec:
+      containers:
+        - name: shield
+          image: registry.gitlab.com/brockuganda/securevoiceshield:blue
+          ports:
+            - containerPort: 3000
+          env:
+            - name: NODE_ENV
+              value: production
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: shield-green
+  namespace: shield
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: shield
+      version: green
+  template:
+    metadata:
+      labels:
+        app: shield
+        version: green
+    spec:
+      containers:
+        - name: shield
+          image: registry.gitlab.com/brockuganda/securevoiceshield:green
+          ports:
+            - containerPort: 3000
+          env:
+            - name: NODE_ENV
+              value: production
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 5
