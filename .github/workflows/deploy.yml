@@ -33,9 +33,13 @@ jobs:
 
       - name: Package standalone
         run: |
-          cd .next/standalone
-          tar czf ../../deploy-full.tar.gz .
-          cd ../..
+          SERVER_JS=$(find .next/standalone -name server.js -path '*SecureVoiceShield*' | head -1)
+          if [ -z "$SERVER_JS" ]; then SERVER_JS=$(find .next/standalone -name server.js | head -1); fi
+          APP_ROOT=$(dirname "$SERVER_JS")
+          echo "Packaging from: $APP_ROOT"
+          cd "$APP_ROOT"
+          tar czf "$GITHUB_WORKSPACE/deploy-full.tar.gz" .
+          cd "$GITHUB_WORKSPACE"
           ls -lh deploy-full.tar.gz
 
       - name: Upload deploy artifact
